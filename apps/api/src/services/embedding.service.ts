@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma'
 import fs from 'fs'
+import path from 'path'
 import pdfParse from 'pdf-parse'
 
 function chunkText(text: string, maxChunkSize = 500): string[] {
@@ -26,9 +27,10 @@ export async function processAtivoFile(ativoId: string): Promise<void> {
   const ativo = await prisma.ativo.findUnique({ where: { id: ativoId } })
   if (!ativo || !ativo.filePath) return
 
-  if (!fs.existsSync(ativo.filePath)) return
+  const resolvedPath = path.join(path.resolve('uploads'), path.basename(ativo.filePath))
+  if (!fs.existsSync(resolvedPath)) return
 
-  const fileBuffer = fs.readFileSync(ativo.filePath)
+  const fileBuffer = fs.readFileSync(resolvedPath)
   const pdfData = await pdfParse(fileBuffer)
   const text = pdfData.text
 

@@ -5,7 +5,7 @@ import path from 'path'
 import fs from 'fs'
 import { prisma } from '../../config/prisma'
 
-const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads')
+const UPLOADS_DIR = path.resolve('uploads')
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {

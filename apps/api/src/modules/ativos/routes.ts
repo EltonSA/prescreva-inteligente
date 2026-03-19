@@ -7,6 +7,13 @@ import fs from 'fs'
 import { pipeline } from 'stream/promises'
 import { processAtivoFile } from '../../services/embedding.service'
 
+const UPLOADS_DIR = path.resolve('uploads')
+
+function resolveUploadPath(filePath: string): string {
+  const fileName = path.basename(filePath)
+  return path.join(UPLOADS_DIR, fileName)
+}
+
 export async function ativosRoutes(app: FastifyInstance) {
   app.get('/ativos', { preHandler: [authGuard] }, async () => {
     return prisma.ativo.findMany({ orderBy: { createdAt: 'desc' } })
@@ -32,7 +39,7 @@ export async function ativosRoutes(app: FastifyInstance) {
     if (!ativo || !ativo.filePath) {
       return reply.status(404).send({ error: 'Arquivo não encontrado' })
     }
-    const absolutePath = path.resolve(ativo.filePath)
+    const absolutePath = resolveUploadPath(ativo.filePath)
     if (!fs.existsSync(absolutePath)) {
       return reply.status(404).send({ error: 'Arquivo não encontrado no disco' })
     }
@@ -63,7 +70,7 @@ export async function ativosRoutes(app: FastifyInstance) {
     if (!ativo || !ativo.filePath) {
       return reply.status(404).send({ error: 'Arquivo não encontrado' })
     }
-    const absolutePath = path.resolve(ativo.filePath)
+    const absolutePath = resolveUploadPath(ativo.filePath)
     if (!fs.existsSync(absolutePath)) {
       return reply.status(404).send({ error: 'Arquivo não encontrado no disco' })
     }
@@ -137,7 +144,7 @@ export async function ativosRoutes(app: FastifyInstance) {
 
     if (ativo.filePath) {
       try {
-        const abs = path.resolve(ativo.filePath)
+        const abs = resolveUploadPath(ativo.filePath)
         if (fs.existsSync(abs)) fs.unlinkSync(abs)
       } catch { /* arquivo pode não existir mais */ }
     }
