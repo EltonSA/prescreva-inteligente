@@ -36,6 +36,7 @@ COPY --from=api-builder /build/api/uploads ./api/uploads
 
 COPY --from=web-builder /build/web/.next/standalone ./web
 COPY --from=web-builder /build/web/.next/static ./web/.next/static
+COPY --from=web-builder /build/web/public ./web/public
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
