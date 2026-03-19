@@ -2,19 +2,6 @@
 
 const API_INTERNAL = process.env.API_INTERNAL_URL || 'http://localhost:3333'
 
-const apiPaths = [
-  '/auth/:path*',
-  '/users/:path*',
-  '/patients/:path*',
-  '/ativos/:path*',
-  '/formulas/:path*',
-  '/formula-groups/:path*',
-  '/ai/:path*',
-  '/conversations/:path*',
-  '/health',
-  '/uploads/:path*',
-]
-
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
@@ -39,10 +26,16 @@ const nextConfig = {
     ],
   },
   async rewrites() {
-    return apiPaths.map((source) => ({
-      source,
-      destination: `${API_INTERNAL}${source}`,
-    }))
+    return {
+      beforeFiles: [
+        {
+          source: '/api/proxy/:path*',
+          destination: `${API_INTERNAL}/:path*`,
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    }
   },
 }
 

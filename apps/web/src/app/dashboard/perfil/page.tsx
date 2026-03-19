@@ -9,7 +9,7 @@ import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { User, Lock, Check, AlertCircle, Camera } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/proxy'
 
 const profissoes = [
   'Dermatologista',
