@@ -67,13 +67,20 @@ model Patient {
 }
 
 model Ativo {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  filePath    String?
-  fileName    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(uuid())
+  name              String
+  description       String?
+  filePath          String?
+  fileName          String?
+  usageType         String?  // Tópico, Oral, Injetável, Tópico/Oral
+  compatibleForms   String?  // Creme, Gel, Sérum, Loção, Cápsula (comma-separated)
+  category          String?  // Despigmentante, Antioxidante, Hidratante, Ácido, Vitamina
+  concentrationMin  String?  // e.g. "0.5%"
+  concentrationMax  String?  // e.g. "5%"
+  contraindications String?  // Texto livre: gestantes, pele sensível, etc.
+  technicalNotes    String?  // pH ideal, incompatibilidades, fotossensibilidade
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   embeddings Embedding[]
 

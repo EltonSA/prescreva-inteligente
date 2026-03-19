@@ -18,7 +18,16 @@ import {
   DrawerFooter,
   DrawerCloseButton,
 } from '@/components/ui/drawer'
-import { Plus, Pencil, Trash2, Search, Eye, Star } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, Eye, Star, FileText, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+
+interface Formula {
+  id: string
+  title: string
+  content: string
+  favorite: boolean
+  createdAt: string
+}
 
 interface Patient {
   id: string
@@ -45,7 +54,23 @@ export default function PacientesPage() {
     treatmentGoal: '', additionalInfo: '',
   })
 
+  const [patientFormulas, setPatientFormulas] = useState<Formula[]>([])
+  const [loadingFormulas, setLoadingFormulas] = useState(false)
+  const [expandedFormula, setExpandedFormula] = useState<string | null>(null)
+
   useEffect(() => { loadPatients() }, [])
+
+  async function loadPatientFormulas(patientId: string) {
+    setLoadingFormulas(true)
+    try {
+      const data = await api.get<{ formulas: Formula[] }>(`/patients/${patientId}`, { skipCache: true })
+      setPatientFormulas(data.formulas || [])
+    } catch {
+      setPatientFormulas([])
+    } finally {
+      setLoadingFormulas(false)
+    }
+  }
 
   async function loadPatients() {
     const data = await api.get<Patient[]>('/patients')
@@ -74,7 +99,9 @@ export default function PacientesPage() {
   function openView(p: Patient) {
     setViewing(p)
     setEditing(null)
+    setExpandedFormula(null)
     setIsOpen(true)
+    loadPatientFormulas(p.id)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -242,6 +269,68 @@ export default function PacientesPage() {
                 <div>
                   <p className="text-desc-medium text-content-text mb-1">Informações adicionais</p>
                   <p className="text-paragraph text-content-title">{viewing.additionalInfo || '-'}</p>
+                </div>
+
+                <div className="border-t border-base-border pt-[24px]">
+                  <div className="flex items-center justify-between mb-[16px]">
+                    <h3 className="text-h3 text-content-title flex items-center gap-2">
+                      <FileText className="w-[18px] h-[18px] text-primary-dark" strokeWidth={1.5} />
+                      Prontuário - Fórmulas salvas
+                    </h3>
+                    <Badge variant="secondary">{patientFormulas.length}</Badge>
+                  </div>
+
+                  {loadingFormulas ? (
+                    <div className="flex justify-center py-[24px]">
+                      <div className="w-5 h-5 border-2 border-primary-dark border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : patientFormulas.length === 0 ? (
+                    <div className="text-center py-[24px] text-content-text text-paragraph">
+                      Nenhuma fórmula salva para este paciente
+                    </div>
+                  ) : (
+                    <div className="space-y-[12px]">
+                      {patientFormulas.map((formula) => (
+                        <div
+                          key={formula.id}
+                          className="border border-base-border rounded-regular overflow-hidden"
+                        >
+                          <button
+                            onClick={() => setExpandedFormula(expandedFormula === formula.id ? null : formula.id)}
+                            className="w-full flex items-center justify-between px-[16px] py-[12px] hover:bg-primary-light/30 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-[12px] min-w-0">
+                              {formula.favorite && (
+                                <Star className="w-[14px] h-[14px] text-yellow-500 fill-yellow-500 flex-shrink-0" strokeWidth={1.5} />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-tag-semibold text-content-title truncate">{formula.title}</p>
+                                <p className="text-desc-medium text-content-text flex items-center gap-1 mt-[2px]">
+                                  <Clock className="w-[12px] h-[12px]" strokeWidth={1.5} />
+                                  {new Date(formula.createdAt).toLocaleDateString('pt-BR', {
+                                    day: '2-digit', month: '2-digit', year: 'numeric',
+                                    hour: '2-digit', minute: '2-digit',
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                            {expandedFormula === formula.id ? (
+                              <ChevronUp className="w-[16px] h-[16px] text-content-text flex-shrink-0" strokeWidth={1.5} />
+                            ) : (
+                              <ChevronDown className="w-[16px] h-[16px] text-content-text flex-shrink-0" strokeWidth={1.5} />
+                            )}
+                          </button>
+                          {expandedFormula === formula.id && (
+                            <div className="border-t border-base-border px-[16px] py-[16px] bg-base-background">
+                              <div className="prose prose-sm max-w-none prose-headings:text-content-title prose-p:text-content-text prose-strong:text-primary-dark prose-li:text-content-text">
+                                <ReactMarkdown>{formula.content}</ReactMarkdown>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </DrawerBody>
               <DrawerFooter>

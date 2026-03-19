@@ -18,8 +18,10 @@ import {
   DrawerFooter,
   DrawerCloseButton,
 } from '@/components/ui/drawer'
+import { Select } from '@/components/ui/select'
 import {
   Plus, Pencil, Trash2, Search, FlaskConical, Download, FileText, Upload, Cpu, Eye, X,
+  Sparkles, Loader2,
 } from 'lucide-react'
 
 interface Ativo {
@@ -28,6 +30,13 @@ interface Ativo {
   description?: string
   filePath?: string
   fileName?: string
+  usageType?: string
+  compatibleForms?: string
+  category?: string
+  concentrationMin?: string
+  concentrationMax?: string
+  contraindications?: string
+  technicalNotes?: string
   createdAt: string
 }
 
@@ -56,10 +65,18 @@ function AtivosContent() {
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [editing, setEditing] = useState<Ativo | null>(null)
-  const [form, setForm] = useState({ name: '', description: '' })
+  const [form, setForm] = useState({
+    name: '', description: '', usageType: '', compatibleForms: '',
+    category: '', concentrationMin: '', concentrationMax: '',
+    contraindications: '', technicalNotes: '',
+  })
   const [file, setFile] = useState<File | null>(null)
   const [processing, setProcessing] = useState<string | null>(null)
+  const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [fillingWithAI, setFillingWithAI] = useState(false)
+  const [filledFields, setFilledFields] = useState<Set<string>>(new Set())
   const [viewing, setViewing] = useState<Ativo | null>(null)
+  const [detailAtivo, setDetailAtivo] = useState<Ativo | null>(null)
   const highlightRef = useRef<HTMLLIElement>(null)
   const sentinelRef = useRef<HTMLLIElement>(null)
 
@@ -97,16 +114,30 @@ function AtivosContent() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', description: '' })
+    setForm({
+      name: '', description: '', usageType: '', compatibleForms: '',
+      category: '', concentrationMin: '', concentrationMax: '',
+      contraindications: '', technicalNotes: '',
+    })
     setFile(null)
     setIsOpen(true)
   }
 
   function openEdit(a: Ativo) {
     setEditing(a)
-    setForm({ name: a.name, description: a.description || '' })
+    setForm({
+      name: a.name, description: a.description || '',
+      usageType: a.usageType || '', compatibleForms: a.compatibleForms || '',
+      category: a.category || '', concentrationMin: a.concentrationMin || '',
+      concentrationMax: a.concentrationMax || '', contraindications: a.contraindications || '',
+      technicalNotes: a.technicalNotes || '',
+    })
     setFile(null)
     setIsOpen(true)
+  }
+
+  function openDetail(a: Ativo) {
+    setDetailAtivo(a)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -119,6 +150,13 @@ function AtivosContent() {
         const formData = new FormData()
         formData.append('name', form.name)
         formData.append('description', form.description)
+        if (form.usageType) formData.append('usageType', form.usageType)
+        if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
+        if (form.category) formData.append('category', form.category)
+        if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
+        if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
+        if (form.contraindications) formData.append('contraindications', form.contraindications)
+        if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
         formData.append('file', file)
         await api.post('/ativos', formData)
       } else {
@@ -127,6 +165,64 @@ function AtivosContent() {
     }
     setIsOpen(false)
     loadAtivos()
+  }
+
+  async function handleAnalyze(id: string) {
+    setAnalyzing(id)
+    try {
+      const updated = await api.post<Ativo>(`/ativos/${id}/analyze`)
+      setAtivos(prev => prev.map(a => a.id === id ? { ...a, ...updated } : a))
+      if (detailAtivo?.id === id) setDetailAtivo({ ...detailAtivo, ...updated })
+      alert('Ativo analisado com sucesso pela IA!')
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setAnalyzing(null)
+    }
+  }
+
+  async function fillWithAI() {
+    if (!file && !editing?.filePath) return
+    setFillingWithAI(true)
+    setFilledFields(new Set())
+
+    try {
+      let result: any
+
+      if (file) {
+        const formData = new FormData()
+        formData.append('file', file)
+        result = await api.post<any>('/ativos/analyze-pdf', formData)
+      } else if (editing) {
+        result = await api.post<any>(`/ativos/${editing.id}/analyze`)
+      }
+
+      if (!result) throw new Error('Sem resultado da análise')
+
+      const fieldMap: { key: keyof typeof form; value: string }[] = [
+        { key: 'description', value: result.description || '' },
+        { key: 'usageType', value: result.usageType || '' },
+        { key: 'category', value: result.category || '' },
+        { key: 'compatibleForms', value: result.compatibleForms || '' },
+        { key: 'concentrationMin', value: result.concentrationMin || '' },
+        { key: 'concentrationMax', value: result.concentrationMax || '' },
+        { key: 'contraindications', value: result.contraindications || '' },
+        { key: 'technicalNotes', value: result.technicalNotes || '' },
+      ]
+
+      for (const field of fieldMap) {
+        if (field.value && field.value !== 'Não informado') {
+          await new Promise(r => setTimeout(r, 150))
+          setForm(prev => ({ ...prev, [field.key]: field.value }))
+          setFilledFields(prev => new Set(prev).add(field.key))
+        }
+      }
+    } catch (err: any) {
+      alert('Erro ao analisar com IA: ' + err.message)
+    } finally {
+      setFillingWithAI(false)
+      setTimeout(() => setFilledFields(new Set()), 3000)
+    }
   }
 
   async function handleDelete(id: string) {
@@ -213,6 +309,15 @@ function AtivosContent() {
                   <div className="min-w-0 flex-1">
                     <p className="text-tag-semibold text-content-title truncate">{a.name}</p>
                     <p className="text-desc-regular text-content-text truncate">{a.description || 'Sem descrição'}</p>
+                    <div className="flex items-center flex-wrap gap-1 mt-1">
+                      {a.usageType && <Badge variant="secondary">{a.usageType}</Badge>}
+                      {a.category && <Badge variant="secondary">{a.category}</Badge>}
+                      {(a.concentrationMin || a.concentrationMax) && (
+                        <Badge variant="secondary">
+                          {[a.concentrationMin, a.concentrationMax].filter(Boolean).join(' - ')}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-[12px] flex-shrink-0 ml-[12px]">
                     {a.fileName && (
@@ -225,10 +330,13 @@ function AtivosContent() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 ml-[12px]">
+                    <Button variant="ghost" size="sm" onClick={() => openDetail(a)} title="Detalhes">
+                      <Eye className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                    </Button>
                     {a.fileName && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => setViewing(a)} title="Visualizar">
-                          <Eye className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                        <Button variant="ghost" size="sm" onClick={() => setViewing(a)} title="Visualizar PDF">
+                          <FileText className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => downloadFile(a.id)} title="Baixar">
                           <Download className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
@@ -236,15 +344,30 @@ function AtivosContent() {
                       </>
                     )}
                     {isAdmin && a.filePath && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleProcess(a.id)}
-                        disabled={processing === a.id}
-                        title="Processar"
-                      >
-                        <Cpu className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleProcess(a.id)}
+                          disabled={processing === a.id}
+                          title="Processar embeddings"
+                        >
+                          <Cpu className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleAnalyze(a.id)}
+                          disabled={analyzing === a.id}
+                          title="Analisar com IA"
+                        >
+                          {analyzing === a.id ? (
+                            <Loader2 className="w-[14px] h-[14px] text-primary-dark animate-spin" strokeWidth={1.5} />
+                          ) : (
+                            <Sparkles className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                          )}
+                        </Button>
+                      </>
                     )}
                     {isAdmin && (
                       <>
@@ -268,23 +391,25 @@ function AtivosContent() {
                     <div className="min-w-0 flex-1">
                       <p className="text-tag-semibold text-content-title">{a.name}</p>
                       <p className="text-desc-regular text-content-text line-clamp-1 mt-0.5">{a.description || 'Sem descrição'}</p>
-                      <div className="flex items-center flex-wrap gap-2 mt-2">
+                      <div className="flex items-center flex-wrap gap-1 mt-2">
+                        {a.usageType && <Badge variant="secondary">{a.usageType}</Badge>}
+                        {a.category && <Badge variant="secondary">{a.category}</Badge>}
                         {a.fileName && (
                           <Badge variant="success">
                             <FileText className="w-[12px] h-[12px] mr-1" strokeWidth={1.5} /> PDF
                           </Badge>
                         )}
-                        <span className="text-desc-regular text-content-text">
-                          {new Date(a.createdAt).toLocaleDateString('pt-BR')}
-                        </span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-end gap-1 mt-2 -mr-1">
+                    <Button variant="ghost" size="sm" onClick={() => openDetail(a)} title="Detalhes">
+                      <Eye className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                    </Button>
                     {a.fileName && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => setViewing(a)} title="Visualizar">
-                          <Eye className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                        <Button variant="ghost" size="sm" onClick={() => setViewing(a)} title="Visualizar PDF">
+                          <FileText className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => downloadFile(a.id)} title="Baixar">
                           <Download className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
@@ -295,11 +420,15 @@ function AtivosContent() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleProcess(a.id)}
-                        disabled={processing === a.id}
-                        title="Processar"
+                        onClick={() => handleAnalyze(a.id)}
+                        disabled={analyzing === a.id}
+                        title="Analisar com IA"
                       >
-                        <Cpu className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                        {analyzing === a.id ? (
+                          <Loader2 className="w-[14px] h-[14px] text-primary-dark animate-spin" strokeWidth={1.5} />
+                        ) : (
+                          <Sparkles className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                        )}
                       </Button>
                     )}
                     {isAdmin && (
@@ -388,7 +517,7 @@ function AtivosContent() {
                   required
                 />
               </div>
-              <div>
+              <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('description') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
                 <label className="block text-tag-semibold text-content-title mb-[12px]">Descrição</label>
                 <Textarea
                   value={form.description}
@@ -416,6 +545,120 @@ function AtivosContent() {
                   </div>
                 </div>
               )}
+
+              {(file || editing?.filePath) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fillWithAI}
+                  disabled={fillingWithAI}
+                  className="w-full border-primary-dark/30 hover:bg-primary-light hover:border-primary-dark/50 relative overflow-hidden"
+                >
+                  {fillingWithAI ? (
+                    <>
+                      <div className="absolute inset-0 bg-gradient-to-r from-primary-light/0 via-primary-light/60 to-primary-light/0 animate-shimmer" />
+                      <Loader2 className="w-[16px] h-[16px] animate-spin text-primary-dark" strokeWidth={1.5} />
+                      <span className="text-primary-dark">Analisando PDF com IA...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-[16px] h-[16px] text-primary-dark" strokeWidth={1.5} />
+                      Preencher com IA
+                    </>
+                  )}
+                </Button>
+              )}
+
+              <div className="border-t border-base-border pt-[24px]">
+                <p className="text-tag-semibold text-content-title mb-[16px]">Informações técnicas</p>
+                <div className="space-y-[16px]">
+                  <div className="grid grid-cols-2 gap-[12px]">
+                    <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('usageType') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                      <label className="block text-desc-medium text-content-text mb-[8px]">Tipo de uso</label>
+                      <Select
+                        value={form.usageType}
+                        onChange={(e) => setForm({ ...form, usageType: e.target.value })}
+                      >
+                        <option value="">Selecione</option>
+                        <option value="Tópico">Tópico</option>
+                        <option value="Oral">Oral</option>
+                        <option value="Injetável">Injetável</option>
+                        <option value="Tópico/Oral">Tópico/Oral</option>
+                        <option value="Tópico/Injetável">Tópico/Injetável</option>
+                        <option value="Oral/Injetável">Oral/Injetável</option>
+                      </Select>
+                    </div>
+                    <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('category') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                      <label className="block text-desc-medium text-content-text mb-[8px]">Categoria</label>
+                      <Select
+                        value={form.category}
+                        onChange={(e) => setForm({ ...form, category: e.target.value })}
+                      >
+                        <option value="">Selecione</option>
+                        <option value="Despigmentante">Despigmentante</option>
+                        <option value="Antioxidante">Antioxidante</option>
+                        <option value="Hidratante">Hidratante</option>
+                        <option value="Anti-aging">Anti-aging</option>
+                        <option value="Ácido">Ácido</option>
+                        <option value="Vitamina">Vitamina</option>
+                        <option value="Peptídeo">Peptídeo</option>
+                        <option value="Protetor Solar">Protetor Solar</option>
+                        <option value="Anti-inflamatório">Anti-inflamatório</option>
+                        <option value="Antimicrobiano">Antimicrobiano</option>
+                        <option value="Cicatrizante">Cicatrizante</option>
+                        <option value="Tensor">Tensor</option>
+                        <option value="Clareador">Clareador</option>
+                        <option value="Esfoliante">Esfoliante</option>
+                        <option value="Nutritivo">Nutritivo</option>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('compatibleForms') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                    <label className="block text-desc-medium text-content-text mb-[8px]">Formas farmacêuticas compatíveis</label>
+                    <Input
+                      value={form.compatibleForms}
+                      onChange={(e) => setForm({ ...form, compatibleForms: e.target.value })}
+                      placeholder="Ex: Creme, Gel, Sérum, Loção, Cápsula"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-[12px]">
+                    <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('concentrationMin') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                      <label className="block text-desc-medium text-content-text mb-[8px]">Concentração mínima</label>
+                      <Input
+                        value={form.concentrationMin}
+                        onChange={(e) => setForm({ ...form, concentrationMin: e.target.value })}
+                        placeholder="Ex: 0.5%"
+                      />
+                    </div>
+                    <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('concentrationMax') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                      <label className="block text-desc-medium text-content-text mb-[8px]">Concentração máxima</label>
+                      <Input
+                        value={form.concentrationMax}
+                        onChange={(e) => setForm({ ...form, concentrationMax: e.target.value })}
+                        placeholder="Ex: 5%"
+                      />
+                    </div>
+                  </div>
+                  <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('contraindications') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                    <label className="block text-desc-medium text-content-text mb-[8px]">Contraindicações</label>
+                    <Textarea
+                      value={form.contraindications}
+                      onChange={(e) => setForm({ ...form, contraindications: e.target.value })}
+                      placeholder="Ex: Gestantes, pele sensível, uso diurno sem FPS..."
+                      rows={2}
+                    />
+                  </div>
+                  <div className={`transition-all duration-500 rounded-small p-[2px] ${filledFields.has('technicalNotes') ? 'bg-green-50 ring-2 ring-green-400/50' : ''}`}>
+                    <label className="block text-desc-medium text-content-text mb-[8px]">Observações técnicas</label>
+                    <Textarea
+                      value={form.technicalNotes}
+                      onChange={(e) => setForm({ ...form, technicalNotes: e.target.value })}
+                      placeholder="Ex: pH ideal < 3.5, fotossensível, incompatível com niacinamida..."
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              </div>
             </DrawerBody>
             <DrawerFooter>
               <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
@@ -424,6 +667,109 @@ function AtivosContent() {
               <Button type="submit">{editing ? 'Salvar' : 'Criar'}</Button>
             </DrawerFooter>
           </form>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Detail Drawer */}
+      <Drawer open={!!detailAtivo} onOpenChange={(open) => { if (!open) setDetailAtivo(null) }}>
+        <DrawerContent>
+          {detailAtivo && (
+            <>
+              <DrawerHeader>
+                <DrawerTitle>Detalhes do ativo</DrawerTitle>
+                <DrawerCloseButton />
+              </DrawerHeader>
+              <DrawerBody className="space-y-[20px]">
+                <div>
+                  <p className="text-desc-medium text-content-text mb-1">Nome</p>
+                  <p className="text-tag-semibold text-content-title">{detailAtivo.name}</p>
+                </div>
+                <div>
+                  <p className="text-desc-medium text-content-text mb-1">Descrição</p>
+                  <p className="text-paragraph text-content-title">{detailAtivo.description || '-'}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-[16px]">
+                  <div>
+                    <p className="text-desc-medium text-content-text mb-1">Tipo de uso</p>
+                    {detailAtivo.usageType ? (
+                      <Badge variant="secondary">{detailAtivo.usageType}</Badge>
+                    ) : (
+                      <p className="text-tag-medium text-content-title">-</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-desc-medium text-content-text mb-1">Categoria</p>
+                    {detailAtivo.category ? (
+                      <Badge variant="secondary">{detailAtivo.category}</Badge>
+                    ) : (
+                      <p className="text-tag-medium text-content-title">-</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-desc-medium text-content-text mb-1">Formas compatíveis</p>
+                  {detailAtivo.compatibleForms ? (
+                    <div className="flex flex-wrap gap-1">
+                      {detailAtivo.compatibleForms.split(',').map((f, i) => (
+                        <Badge key={i} variant="secondary">{f.trim()}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-tag-medium text-content-title">-</p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-[16px]">
+                  <div>
+                    <p className="text-desc-medium text-content-text mb-1">Concentração mínima</p>
+                    <p className="text-tag-medium text-content-title">{detailAtivo.concentrationMin || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-desc-medium text-content-text mb-1">Concentração máxima</p>
+                    <p className="text-tag-medium text-content-title">{detailAtivo.concentrationMax || '-'}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-desc-medium text-content-text mb-1">Contraindicações</p>
+                  <p className="text-paragraph text-content-title">{detailAtivo.contraindications || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-desc-medium text-content-text mb-1">Observações técnicas</p>
+                  <p className="text-paragraph text-content-title">{detailAtivo.technicalNotes || '-'}</p>
+                </div>
+                {detailAtivo.fileName && (
+                  <div>
+                    <p className="text-desc-medium text-content-text mb-1">Arquivo</p>
+                    <Badge variant="success">
+                      <FileText className="w-[12px] h-[12px] mr-1" strokeWidth={1.5} />
+                      {detailAtivo.fileName}
+                    </Badge>
+                  </div>
+                )}
+              </DrawerBody>
+              <DrawerFooter>
+                {isAdmin && detailAtivo.filePath && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleAnalyze(detailAtivo.id)}
+                    disabled={analyzing === detailAtivo.id}
+                  >
+                    {analyzing === detailAtivo.id ? (
+                      <Loader2 className="w-[14px] h-[14px] animate-spin" strokeWidth={1.5} />
+                    ) : (
+                      <Sparkles className="w-[14px] h-[14px]" strokeWidth={1.5} />
+                    )}
+                    Analisar com IA
+                  </Button>
+                )}
+                {isAdmin && (
+                  <Button onClick={() => { openEdit(detailAtivo); setDetailAtivo(null) }}>
+                    <Pencil className="w-[14px] h-[14px]" strokeWidth={1.5} />
+                    Editar
+                  </Button>
+                )}
+              </DrawerFooter>
+            </>
+          )}
         </DrawerContent>
       </Drawer>
     </div>

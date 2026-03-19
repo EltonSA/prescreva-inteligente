@@ -6,6 +6,7 @@ import path from 'path'
 import fs from 'fs'
 import { pipeline } from 'stream/promises'
 import { processAtivoFile } from '../../services/embedding.service'
+import { analyzePdfContent, analyzePdfBuffer } from '../../services/pdf-analysis.service'
 
 const UPLOADS_DIR = path.resolve('uploads')
 
@@ -81,6 +82,27 @@ export async function ativosRoutes(app: FastifyInstance) {
       .send(fs.createReadStream(absolutePath))
   })
 
+  app.post('/ativos/analyze-pdf', { preHandler: [adminGuard] }, async (request, reply) => {
+    const data = await request.file()
+    if (!data) {
+      return reply.status(400).send({ error: 'Envie um arquivo PDF' })
+    }
+    const chunks: Buffer[] = []
+    for await (const chunk of data.file) {
+      chunks.push(chunk)
+    }
+    const buffer = Buffer.concat(chunks)
+    try {
+      const analysis = await analyzePdfBuffer(buffer)
+      if (!analysis) {
+        return reply.status(400).send({ error: 'Não foi possível analisar. Verifique se a IA está configurada.' })
+      }
+      return analysis
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
+  })
+
   app.post('/ativos', { preHandler: [adminGuard] }, async (request, reply) => {
     const data = await request.file()
 
@@ -88,6 +110,13 @@ export async function ativosRoutes(app: FastifyInstance) {
       const schema = z.object({
         name: z.string().min(2),
         description: z.string().optional(),
+        usageType: z.string().optional(),
+        compatibleForms: z.string().optional(),
+        category: z.string().optional(),
+        concentrationMin: z.string().optional(),
+        concentrationMax: z.string().optional(),
+        contraindications: z.string().optional(),
+        technicalNotes: z.string().optional(),
       })
       const body = schema.parse(request.body)
       const ativo = await prisma.ativo.create({ data: body })
@@ -97,6 +126,13 @@ export async function ativosRoutes(app: FastifyInstance) {
     const fields = data.fields as any
     const name = fields.name?.value || 'Sem nome'
     const description = fields.description?.value || ''
+    const usageType = fields.usageType?.value || undefined
+    const compatibleForms = fields.compatibleForms?.value || undefined
+    const category = fields.category?.value || undefined
+    const concentrationMin = fields.concentrationMin?.value || undefined
+    const concentrationMax = fields.concentrationMax?.value || undefined
+    const contraindications = fields.contraindications?.value || undefined
+    const technicalNotes = fields.technicalNotes?.value || undefined
 
     let filePath: string | undefined
     let fileName: string | undefined
@@ -111,12 +147,20 @@ export async function ativosRoutes(app: FastifyInstance) {
     }
 
     const ativo = await prisma.ativo.create({
-      data: { name, description, filePath, fileName },
+      data: {
+        name, description, filePath, fileName,
+        usageType, compatibleForms, category,
+        concentrationMin, concentrationMax,
+        contraindications, technicalNotes,
+      },
     })
 
     if (filePath) {
       processAtivoFile(ativo.id).catch((err) =>
-        console.error('Erro ao processar PDF:', err.message)
+        console.error('Erro ao processar PDF (embeddings):', err.message)
+      )
+      analyzePdfContent(ativo.id).catch((err) =>
+        console.error('Erro ao analisar PDF (IA):', err.message)
       )
     }
 
@@ -128,11 +172,32 @@ export async function ativosRoutes(app: FastifyInstance) {
     const schema = z.object({
       name: z.string().min(2).optional(),
       description: z.string().optional(),
+      usageType: z.string().optional(),
+      compatibleForms: z.string().optional(),
+      category: z.string().optional(),
+      concentrationMin: z.string().optional(),
+      concentrationMax: z.string().optional(),
+      contraindications: z.string().optional(),
+      technicalNotes: z.string().optional(),
     })
 
     const data = schema.parse(request.body)
     const ativo = await prisma.ativo.update({ where: { id }, data })
     return ativo
+  })
+
+  app.post('/ativos/:id/analyze', { preHandler: [adminGuard] }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      const analysis = await analyzePdfContent(id)
+      if (!analysis) {
+        return reply.status(400).send({ error: 'Não foi possível analisar. Verifique se o ativo possui PDF e se a IA está configurada.' })
+      }
+      const ativo = await prisma.ativo.findUnique({ where: { id } })
+      return ativo
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
   })
 
   app.delete('/ativos/:id', { preHandler: [adminGuard] }, async (request, reply) => {

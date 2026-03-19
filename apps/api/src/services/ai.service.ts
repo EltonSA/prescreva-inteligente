@@ -76,7 +76,14 @@ IMPORTANTE:
 - NUNCA use asteriscos duplos (**) para negrito no texto. Escreva tudo em texto simples, sem formatação markdown como ** ou __.
 - "Modo de uso:" e "Observações:" devem ser escritos em texto puro, sem ** ao redor.
 - SEMPRE priorize e utilize os ativos disponíveis na "Base de Conhecimento" ao montar a fórmula. Eles são os ativos que o profissional tem disponíveis.
-- NÃO inclua referências ou menções à base de conhecimento no texto da resposta. As referências serão tratadas automaticamente pelo sistema.`
+- NÃO inclua referências ou menções à base de conhecimento no texto da resposta. As referências serão tratadas automaticamente pelo sistema.
+
+REGRAS CRÍTICAS SOBRE ATIVOS:
+- RESPEITE a "Via de uso" de cada ativo. NUNCA use um ativo de uso "Oral" em uma formulação tópica (creme, gel, sérum) e vice-versa.
+- RESPEITE as "Formas compatíveis" de cada ativo. Só use o ativo em formas farmacêuticas listadas como compatíveis.
+- RESPEITE a faixa de "Concentração usual" de cada ativo. Nunca sugira concentrações fora da faixa indicada.
+- VERIFIQUE as "Contraindicações" do ativo contra os dados do paciente (idade, condições, pele sensível, etc).
+- OBSERVE as "Notas técnicas" (pH, incompatibilidades) para não combinar ativos incompatíveis na mesma fórmula.`
 }
 
 async function getAllAtivos(): Promise<ReferencedAtivo[]> {
@@ -89,25 +96,47 @@ async function getAllAtivos(): Promise<ReferencedAtivo[]> {
 
 async function searchRelevantContext(query: string): Promise<{ context: string; ativos: ReferencedAtivo[] }> {
   const ativos = await prisma.ativo.findMany({
-    select: { id: true, name: true, description: true, fileName: true },
+    select: {
+      id: true, name: true, description: true, fileName: true,
+      usageType: true, compatibleForms: true, category: true,
+      concentrationMin: true, concentrationMax: true,
+      contraindications: true, technicalNotes: true,
+    },
   })
 
   if (ativos.length === 0) return { context: '', ativos: [] }
+
+  const ativoLines = ativos.map((a) => {
+    const parts = [`### ${a.name}`]
+    if (a.description) parts.push(`Descrição: ${a.description}`)
+    if (a.usageType) parts.push(`Via de uso: ${a.usageType}`)
+    if (a.compatibleForms) parts.push(`Formas compatíveis: ${a.compatibleForms}`)
+    if (a.category) parts.push(`Categoria: ${a.category}`)
+    if (a.concentrationMin || a.concentrationMax) {
+      const range = [a.concentrationMin, a.concentrationMax].filter(Boolean).join(' a ')
+      parts.push(`Concentração usual: ${range}`)
+    }
+    if (a.contraindications && a.contraindications !== 'Não informado') {
+      parts.push(`Contraindicações: ${a.contraindications}`)
+    }
+    if (a.technicalNotes && a.technicalNotes !== 'Não informado') {
+      parts.push(`Notas técnicas: ${a.technicalNotes}`)
+    }
+    return parts.join('\n')
+  })
 
   const embeddings = await prisma.embedding.findMany({
     include: { ativo: { select: { id: true, name: true } } },
     take: 10,
   })
 
-  let context: string
+  let context = ativoLines.join('\n\n')
+
   if (embeddings.length > 0) {
-    context = embeddings
+    context += '\n\n## Detalhes adicionais dos PDFs\n'
+    context += embeddings
       .map((e) => `[${e.ativo.name}]: ${e.content}`)
       .join('\n\n')
-  } else {
-    context = ativos
-      .map((a) => `- ${a.name}: ${a.description || 'Sem descrição'}`)
-      .join('\n')
   }
 
   return {

@@ -37,6 +37,8 @@ interface Message {
   saved?: boolean
   savedType?: 'favorite' | 'saved'
   referencedAtivos?: ReferencedAtivo[]
+  typing?: boolean
+  displayedContent?: string
 }
 
 interface ConversationSummary {
@@ -206,7 +208,7 @@ function FormulaCard({ content, onFavorite, saving, saved, savedType, referenced
           {saved ? (
             <span className="flex items-center gap-[8px] text-desc-medium text-primary-dark">
               <Check className="w-[14px] h-[14px]" strokeWidth={2} />
-              {savedType === 'favorite' ? 'Salvo nos favoritos' : 'Fórmula salva'}
+              Salvo nos favoritos
             </span>
           ) : (
             <Button
@@ -250,9 +252,37 @@ function IAContent() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingStep, setLoadingStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [viewingAtivo, setViewingAtivo] = useState<ReferencedAtivo | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const typingRef = useRef<number | null>(null)
+  const loadingStepRef = useRef<number | null>(null)
+
+  const loadingMessages = [
+    'Analisando sua solicitação...',
+    'Consultando base de ativos...',
+    'Verificando compatibilidades...',
+    'Buscando informações técnicas...',
+    'Montando a formulação...',
+    'Revisando concentrações...',
+    'Finalizando resposta...',
+  ]
+
+  useEffect(() => {
+    if (loading) {
+      setLoadingStep(0)
+      loadingStepRef.current = window.setInterval(() => {
+        setLoadingStep(prev => (prev + 1) % loadingMessages.length)
+      }, 2500)
+    } else {
+      if (loadingStepRef.current) clearInterval(loadingStepRef.current)
+      loadingStepRef.current = null
+    }
+    return () => {
+      if (loadingStepRef.current) clearInterval(loadingStepRef.current)
+    }
+  }, [loading])
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -269,6 +299,12 @@ function IAContent() {
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (typingRef.current) clearInterval(typingRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -328,6 +364,31 @@ function IAContent() {
     }
   }
 
+  function typeMessage(fullContent: string, msgIndex: number, referencedAtivos?: ReferencedAtivo[]) {
+    if (typingRef.current) clearInterval(typingRef.current)
+
+    const words = fullContent.split(/(\s+)/)
+    let currentIndex = 0
+    const chunkSize = 1
+
+    typingRef.current = window.setInterval(() => {
+      currentIndex += chunkSize
+      if (currentIndex >= words.length) {
+        currentIndex = words.length
+        if (typingRef.current) clearInterval(typingRef.current)
+        typingRef.current = null
+        setMessages(prev => prev.map((m, i) =>
+          i === msgIndex ? { ...m, typing: false, displayedContent: undefined } : m
+        ))
+      } else {
+        const displayed = words.slice(0, currentIndex).join('')
+        setMessages(prev => prev.map((m, i) =>
+          i === msgIndex ? { ...m, displayedContent: displayed } : m
+        ))
+      }
+    }, 50)
+  }
+
   async function sendMessage() {
     if (!input.trim() || !selectedPatient || loading) return
 
@@ -365,14 +426,19 @@ function IAContent() {
         referencedAtivos: result.referencedAtivos,
       })
 
-      setMessages([
-        ...newMessages,
-        {
-          role: 'assistant',
-          content: result.response,
-          referencedAtivos: result.referencedAtivos,
-        },
-      ])
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: result.response,
+        referencedAtivos: result.referencedAtivos,
+        typing: true,
+        displayedContent: '',
+      }
+
+      const updatedMessages = [...newMessages, assistantMsg]
+      setMessages(updatedMessages)
+
+      const msgIdx = updatedMessages.length - 1
+      typeMessage(result.response, msgIdx, result.referencedAtivos)
 
       loadConversations(selectedPatient)
     } catch (err: any) {
@@ -652,7 +718,7 @@ function IAContent() {
                   </div>
                 )}
 
-                {msg.role === 'assistant' && isFormulaResponse(msg.content) ? (
+                {msg.role === 'assistant' && isFormulaResponse(msg.content) && !msg.typing ? (
                   <FormulaCard
                     content={msg.content}
                     onFavorite={() => saveFormulaAtIndex(i, true)}
@@ -665,7 +731,10 @@ function IAContent() {
                 ) : msg.role === 'assistant' ? (
                   <div className="max-w-[90%] lg:max-w-[75%] rounded-regular border border-base-border bg-base-white px-3 py-3 lg:px-[24px] lg:py-[24px]">
                     <div className="prose prose-sm max-w-none prose-headings:text-content-title prose-p:text-content-text prose-strong:text-primary-dark prose-li:text-content-text">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown>{msg.typing ? (msg.displayedContent || '') : msg.content}</ReactMarkdown>
+                      {msg.typing && (
+                        <span className="inline-block w-[6px] h-[16px] bg-primary-dark/70 ml-[2px] animate-pulse rounded-sm align-middle" />
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -693,10 +762,16 @@ function IAContent() {
                 <div className="w-9 h-9 rounded-huge bg-primary-light flex items-center justify-center flex-shrink-0 overflow-hidden">
                   <Image src="/ico.ico" alt="IA" width={24} height={24} className="w-[24px] h-[24px] object-contain" />
                 </div>
-                <div className="bg-base-white border border-base-border rounded-regular px-[24px] py-[12px]">
+                <div className="bg-base-white border border-base-border rounded-regular px-[24px] py-[14px] min-w-[240px]">
                   <div className="flex items-center gap-[12px] text-paragraph text-content-text">
-                    <Loader2 className="w-[14px] h-[14px] animate-spin" />
-                    Gerando resposta...
+                    <div className="flex gap-[4px] items-center flex-shrink-0">
+                      <span className="w-[6px] h-[6px] rounded-full bg-primary-dark animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-[6px] h-[6px] rounded-full bg-primary-dark animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-[6px] h-[6px] rounded-full bg-primary-dark animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span key={loadingStep} className="animate-fade-in">
+                      {loadingMessages[loadingStep]}
+                    </span>
                   </div>
                 </div>
               </div>
