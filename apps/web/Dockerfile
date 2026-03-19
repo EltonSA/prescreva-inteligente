@@ -2,10 +2,10 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY apps/web/package*.json ./
 RUN npm ci
 
-COPY . .
+COPY apps/web/ .
 
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
