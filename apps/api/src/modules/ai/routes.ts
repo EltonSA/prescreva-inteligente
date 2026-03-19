@@ -111,7 +111,7 @@ export async function aiRoutes(app: FastifyInstance) {
       prisma.patient.count(wf),                                                           // 0
       prisma.formula.count(wf),                                                           // 1
       prisma.formulaAiVersion.count(wf),                                                  // 2
-      prisma.ativo.count(dateFilter ? { where: { createdAt: dateFilter } } : {}),         // 3
+      prisma.ativo.count(dateFilter ? { where: { createdAt: dateFilter } } : undefined),   // 3
       prisma.conversation.count(wf),                                                      // 4
       prisma.formula.count({ where: { ...wd, favorite: true } }),                         // 5
       prisma.formulaAiVersion.count({ where: { ...wd, isFavorited: true } }),             // 6
@@ -142,7 +142,7 @@ export async function aiRoutes(app: FastifyInstance) {
 
     if (isAdmin) {
       queries.push(
-        prisma.user.count(dateFilter ? { where: { createdAt: dateFilter } } : {}),        // 16
+        prisma.user.count(dateFilter ? { where: { createdAt: dateFilter } } : undefined),  // 16
         prisma.user.count({ where: { createdAt: { gte: startOfMonth } } }),               // 17
         prisma.user.findMany({                                                            // 18
           select: {

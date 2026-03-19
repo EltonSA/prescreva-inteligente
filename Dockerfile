@@ -1,4 +1,4 @@
-FROM node:18-alpine AS api-builder
+FROM node:20-alpine AS api-builder
 
 WORKDIR /build/api
 
@@ -11,7 +11,7 @@ RUN npx prisma generate
 COPY apps/api/ .
 RUN npm run build
 
-FROM node:18-alpine AS web-builder
+FROM node:20-alpine AS web-builder
 
 WORKDIR /build/web
 
@@ -25,7 +25,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 RUN apk add --no-cache tini
 

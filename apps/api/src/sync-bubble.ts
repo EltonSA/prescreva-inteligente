@@ -43,7 +43,7 @@ async function fetchAtivos(limit: number) {
       throw new Error(`Erro ao buscar ativos: ${response.status} ${response.statusText}`)
     }
 
-    const data = await response.json()
+    const data: any = await response.json()
     const results = data.response?.results || []
     const remaining = data.response?.remaining || 0
 

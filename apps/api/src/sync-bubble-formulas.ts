@@ -35,7 +35,7 @@ async function fetchFormulas(): Promise<BubbleFormula[]> {
       throw new Error(`Erro ao buscar fórmulas: ${response.status} ${response.statusText}`)
     }
 
-    const data = await response.json()
+    const data: any = await response.json()
     const results: BubbleFormula[] = data.response?.results || []
     const remaining = data.response?.remaining || 0
 
