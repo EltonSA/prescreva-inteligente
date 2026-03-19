@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --color-primary-light: #E3EAE2;
+    --color-primary-medium: #C0D2BE;
+    --color-primary-dark: #3E5A4E;
+
+    --color-bg: #FAFAFA;
+    --color-white: #FFFFFF;
+    --color-disable: #F2F2F2;
+    --color-border: #D9D9D9;
+
+    --color-text: #595959;
+    --color-title: #262626;
+
+    --color-error: #E30000;
+
+    --radius-huge: 48px;
+    --radius-big: 32px;
+    --radius-regular: 24px;
+    --radius-small: 12px;
+    --radius-tiny: 8px;
+
+    --space-lg: 48px;
+    --space-md: 32px;
+    --space-sm: 24px;
+    --space-xs: 12px;
+
+    --icon-huge: 40px;
+    --icon-big: 24px;
+    --icon-regular: 18px;
+    --icon-small: 14px;
+    --icon-tiny: 12px;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 3px;
+  }
+}
+
+body {
+  @apply antialiased;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-title);
+}

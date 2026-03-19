@@ -1,0 +1,39 @@
+{
+  "name": "prescreva-api",
+  "version": "1.0.0",
+  "description": "Prescreva Inteligente - API Backend",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:migrate": "npx prisma migrate dev",
+    "db:generate": "npx prisma generate",
+    "db:seed": "tsx src/seed.ts",
+    "db:push": "npx prisma db push",
+    "sync:ativos": "tsx src/sync-bubble.ts",
+    "sync:formulas": "tsx src/sync-bubble-formulas.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/jwt": "^9.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^6.19.2",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "openai": "^4.85.4",
+    "pdf-parse": "^1.1.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.9",
+    "@types/pdf-parse": "^1.1.4",
+    "prisma": "^6.4.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

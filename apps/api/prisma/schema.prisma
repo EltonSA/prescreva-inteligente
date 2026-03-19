@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum SexType {
+  MASCULINO
+  FEMININO
+  OUTRO
+}
+
+enum AIProvider {
+  OPENAI
+  GEMINI
+  CLAUDE
+}
+
+model User {
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  password   String
+  phone      String?
+  profession String?
+  avatar     String?
+  role       Role     @default(USER)
+  isActive   Boolean  @default(true)
+  lastLogin  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  patients         Patient[]
+  formulas         Formula[]
+  formulaAiVersions FormulaAiVersion[]
+  conversations    Conversation[]
+
+  @@map("users")
+}
+
+model Patient {
+  id                    String   @id @default(uuid())
+  name                  String
+  age                   Int
+  sex                   SexType
+  skinType              String?
+  phototype             String?
+  treatmentGoal         String?
+  additionalInfo        String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  formulas Formula[]
+  conversations Conversation[]
+
+  @@map("patients")
+}
+
+model Ativo {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  filePath    String?
+  fileName    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  embeddings Embedding[]
+
+  @@map("ativos")
+}
+
+model Formula {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  favorite    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("formulas")
+}
+
+model AiSettings {
+  id           String     @id @default(uuid())
+  systemPrompt String     @default("Você é um assistente farmacêutico especializado em prescrições magistrais.")
+  provider     AIProvider @default(OPENAI)
+  apiKey       String?
+  model        String     @default("gpt-4o-mini")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("ai_settings")
+}
+
+model Embedding {
+  id        String   @id @default(uuid())
+  content   String
+  embedding Float[]
+  ativoId   String
+  ativo     Ativo    @relation(fields: [ativoId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("embeddings")
+}
+
+model FormulaGroup {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  iconKey     String   @default("beaker")
+  isDefault   Boolean  @default(false)
+  isSystem    Boolean  @default(false)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tags     FormulaGroupTag[]
+  formulas LibraryFormula[]
+
+  @@map("formula_groups")
+}
+
+model FormulaGroupTag {
+  id      String @id @default(uuid())
+  groupId String
+  tagName String
+
+  group FormulaGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("formula_group_tags")
+}
+
+model LibraryFormula {
+  id           String   @id @default(uuid())
+  groupId      String
+  name         String
+  composition  String
+  instructions String
+  createdBy    String?
+  isOfficial   Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  group      FormulaGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  aiVersions FormulaAiVersion[]
+
+  @@map("library_formulas")
+}
+
+model FormulaAiVersion {
+  id                          String   @id @default(uuid())
+  userId                      String
+  baseFormulaId               String
+  title                       String
+  originalFormulaSnapshot     String
+  originalInstructionsSnapshot String
+  userRequest                 String
+  aiResultFormula             String
+  aiResultInstructions        String
+  isFavorited                 Boolean  @default(false)
+  createdAt                   DateTime @default(now())
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseFormula LibraryFormula @relation(fields: [baseFormulaId], references: [id], onDelete: Cascade)
+
+  @@map("formula_ai_versions")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  patientId String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patient  Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  messages ConversationMessage[]
+
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  role           String
+  content        String
+  referencedAtivos Json?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_messages")
+}
