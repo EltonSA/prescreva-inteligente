@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useAuth } from '@/contexts/auth-context'
 import { Menu } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333'
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 interface HeaderProps {
   collapsed?: boolean
