@@ -10,7 +10,7 @@ import { processAtivoFile } from '../../services/embedding.service'
 const UPLOADS_DIR = path.resolve('uploads')
 
 function resolveUploadPath(filePath: string): string {
-  const fileName = path.basename(filePath)
+  const fileName = filePath.split(/[/\\]/).pop() || filePath
   return path.join(UPLOADS_DIR, fileName)
 }
 

@@ -27,7 +27,8 @@ export async function processAtivoFile(ativoId: string): Promise<void> {
   const ativo = await prisma.ativo.findUnique({ where: { id: ativoId } })
   if (!ativo || !ativo.filePath) return
 
-  const resolvedPath = path.join(path.resolve('uploads'), path.basename(ativo.filePath))
+  const fileName = ativo.filePath.split(/[/\\]/).pop() || ativo.filePath
+  const resolvedPath = path.join(path.resolve('uploads'), fileName)
   if (!fs.existsSync(resolvedPath)) return
 
   const fileBuffer = fs.readFileSync(resolvedPath)
