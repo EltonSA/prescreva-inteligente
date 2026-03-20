@@ -93,6 +93,31 @@ async function main() {
     })
 
     if (existing) {
+      if (existing.filePath && pdfUrl) {
+        const existingFile = existing.filePath.split(/[/\\]/).pop() || existing.filePath
+        const existingPath = path.join(UPLOADS_DIR, existingFile)
+        if (!fs.existsSync(existingPath)) {
+          console.log(`  -> Existe no banco mas PDF ausente no disco, re-baixando...`)
+          try {
+            const cleanName = cleanFileName(nome)
+            const newFileName = `${Date.now()}-${cleanName}.pdf`
+            const newFilePath = path.join(UPLOADS_DIR, newFileName)
+            await downloadPdf(pdfUrl, newFilePath)
+            await prisma.ativo.update({
+              where: { id: existing.id },
+              data: { filePath: newFilePath, fileName: newFileName },
+            })
+            console.log(`  -> PDF re-baixado: ${newFileName}`)
+            await processAtivoFile(existing.id)
+            console.log(`  -> PDF reprocessado!\n`)
+            imported++
+          } catch (err: any) {
+            console.log(`  -> Erro ao re-baixar PDF: ${err.message}\n`)
+            errors++
+          }
+          continue
+        }
+      }
       console.log(`  -> Ja existe no sistema, pulando.\n`)
       skipped++
       continue
