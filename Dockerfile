@@ -32,7 +32,10 @@ COPY --from=api-builder /build/api/dist ./api/dist
 COPY --from=api-builder /build/api/node_modules ./api/node_modules
 COPY --from=api-builder /build/api/package*.json ./api/
 COPY --from=api-builder /build/api/prisma ./api/prisma
-COPY --from=api-builder /build/api/uploads ./api/uploads
+
+RUN mkdir -p /app/api/uploads
+
+VOLUME ["/app/api/uploads"]
 
 COPY --from=web-builder /build/web/.next/standalone ./web
 COPY --from=web-builder /build/web/.next/static ./web/.next/static
