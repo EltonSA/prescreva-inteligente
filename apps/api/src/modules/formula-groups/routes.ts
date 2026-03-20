@@ -262,6 +262,87 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── AI Modify Favorite ──────────────────────────────────────────────
+
+  app.post('/ai/formulas/modify-favorite', { preHandler: [authGuard] }, async (request, reply) => {
+    const schema = z.object({
+      favoriteId: z.string().uuid(),
+      favoriteType: z.enum(['library', 'chat']),
+      userRequest: z.string().min(3),
+    })
+
+    const data = schema.parse(request.body)
+    const user = request.user as { id: string }
+    const fullUser = await prisma.user.findUnique({ where: { id: user.id } })
+    if (!fullUser) return reply.status(404).send({ error: 'Usuário não encontrado' })
+
+    let formulaInput: { name: string; composition: string; instructions: string }
+
+    if (data.favoriteType === 'library') {
+      const version = await prisma.formulaAiVersion.findFirst({ where: { id: data.favoriteId, userId: user.id } })
+      if (!version) return reply.status(404).send({ error: 'Fórmula não encontrada' })
+      formulaInput = {
+        name: version.title,
+        composition: version.aiResultFormula,
+        instructions: version.aiResultInstructions,
+      }
+    } else {
+      const formula = await prisma.formula.findFirst({ where: { id: data.favoriteId, userId: user.id } })
+      if (!formula) return reply.status(404).send({ error: 'Fórmula não encontrada' })
+      formulaInput = {
+        name: formula.title,
+        composition: formula.content,
+        instructions: '',
+      }
+    }
+
+    try {
+      const result = await processFormulaModification({
+        formula: formulaInput,
+        userRequest: data.userRequest,
+        userProfession: fullUser.profession || 'Não informada',
+        patientContext: '',
+      })
+      return result
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Erro ao processar com IA' })
+    }
+  })
+
+  app.put('/ai/formulas/save-favorite', { preHandler: [authGuard] }, async (request, reply) => {
+    const schema = z.object({
+      favoriteId: z.string().uuid(),
+      favoriteType: z.enum(['library', 'chat']),
+      title: z.string(),
+      composition: z.string(),
+      instructions: z.string(),
+    })
+
+    const data = schema.parse(request.body)
+    const userId = (request.user as { id: string }).id
+
+    if (data.favoriteType === 'library') {
+      const updated = await prisma.formulaAiVersion.update({
+        where: { id: data.favoriteId },
+        data: {
+          title: data.title,
+          aiResultFormula: data.composition,
+          aiResultInstructions: data.instructions,
+        },
+      })
+      return updated
+    } else {
+      const newContent = data.instructions
+        ? `${data.composition}\n\n**Modo de Uso:**\n${data.instructions}`
+        : data.composition
+      const updated = await prisma.formula.update({
+        where: { id: data.favoriteId, userId },
+        data: { title: data.title, content: newContent },
+      })
+      return updated
+    }
+  })
+
   // ── Favorites ───────────────────────────────────────────────────────
 
   app.patch('/ai/formulas/:id/favorite', { preHandler: [authGuard] }, async (request) => {

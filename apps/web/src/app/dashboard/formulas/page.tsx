@@ -149,6 +149,12 @@ export default function FormulasPage() {
 
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false)
 
+  const [favAiDrawerOpen, setFavAiDrawerOpen] = useState(false)
+  const [favAiBase, setFavAiBase] = useState<FavoriteItem | null>(null)
+  const [favAiRequest, setFavAiRequest] = useState('')
+  const [favAiLoading, setFavAiLoading] = useState(false)
+  const [favAiResult, setFavAiResult] = useState<{ title: string; composition: string; instructions: string } | null>(null)
+
   // Group form
   const [groupForm, setGroupForm] = useState({
     name: '',
@@ -364,6 +370,49 @@ export default function FormulasPage() {
       setFavorites((prev) => prev.filter((f) => f.id !== item.id))
     } catch (err: any) {
       alert(err.message || 'Erro ao remover favorito')
+    }
+  }
+
+  // ── Favorite AI Modification ─────────────────────────────────────
+
+  function openFavAiModify(fav: FavoriteItem) {
+    setFavAiBase(fav)
+    setFavAiRequest('')
+    setFavAiResult(null)
+    setFavAiDrawerOpen(true)
+  }
+
+  async function handleFavAiModify(e: React.FormEvent) {
+    e.preventDefault()
+    if (!favAiBase || !favAiRequest.trim()) return
+    setFavAiLoading(true)
+    setFavAiResult(null)
+    try {
+      const result = await api.post<{ title: string; composition: string; instructions: string }>('/ai/formulas/modify-favorite', {
+        favoriteId: favAiBase.id,
+        favoriteType: favAiBase.source,
+        userRequest: favAiRequest,
+      })
+      setFavAiResult(result)
+    } catch (err: any) {
+      alert(err.message || 'Erro ao modificar com IA')
+    } finally {
+      setFavAiLoading(false)
+    }
+  }
+
+  async function handleSaveFavAiResult() {
+    if (!favAiBase || !favAiResult) return
+    try {
+      await api.put('/ai/formulas/save-favorite', {
+        favoriteId: favAiBase.id,
+        favoriteType: favAiBase.source,
+        ...favAiResult,
+      })
+      setFavAiDrawerOpen(false)
+      loadFavorites()
+    } catch (err: any) {
+      alert(err.message || 'Erro ao salvar')
     }
   }
 
@@ -989,13 +1038,22 @@ export default function FormulasPage() {
                       </p>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleUnfavorite(fav)}
-                    className="p-[6px] rounded-tiny text-[#E65100] hover:bg-[#FFF3E0] transition-colors shrink-0"
-                    title="Remover dos favoritos"
-                  >
-                    <Star className="w-[16px] h-[16px] fill-current" strokeWidth={1.5} />
-                  </button>
+                  <div className="flex items-center gap-[4px] shrink-0">
+                    <button
+                      onClick={() => openFavAiModify(fav)}
+                      className="p-[6px] rounded-tiny text-primary-dark hover:bg-primary-light transition-colors"
+                      title="Modificar com IA"
+                    >
+                      <Sparkles className="w-[16px] h-[16px]" strokeWidth={1.5} />
+                    </button>
+                    <button
+                      onClick={() => handleUnfavorite(fav)}
+                      className="p-[6px] rounded-tiny text-[#E65100] hover:bg-[#FFF3E0] transition-colors"
+                      title="Remover dos favoritos"
+                    >
+                      <Star className="w-[16px] h-[16px] fill-current" strokeWidth={1.5} />
+                    </button>
+                  </div>
                 </div>
 
                 {fav.source === 'library' ? (
@@ -1037,6 +1095,139 @@ export default function FormulasPage() {
               <div className="py-[32px] text-center text-content-text">
                 Você ainda não favoritou nenhuma fórmula
               </div>
+            )}
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
+
+      {/* ── Drawer: AI Modify Favorite ─────────────────────────────── */}
+      <Drawer open={favAiDrawerOpen} onOpenChange={setFavAiDrawerOpen}>
+        <DrawerContent size="wide">
+          <DrawerHeader>
+            <div>
+              <DrawerTitle>Modificar Fórmula com IA</DrawerTitle>
+              <DrawerDescription>
+                Altere e melhore sua fórmula favoritada com auxílio da inteligência artificial
+              </DrawerDescription>
+            </div>
+            <DrawerCloseButton />
+          </DrawerHeader>
+          <DrawerBody className="space-y-[24px]">
+            {favAiBase && (
+              <>
+                <div className="border border-base-border rounded-small p-[20px] bg-base-background">
+                  <div className="flex items-center gap-[8px] mb-[12px]">
+                    <Star className="w-[16px] h-[16px] text-[#E65100] fill-current" strokeWidth={1.5} />
+                    <h4 className="text-tag-bold text-content-title">Fórmula Atual</h4>
+                    <Badge variant={favAiBase.source === 'chat' ? 'default' : 'secondary'} className="ml-auto">
+                      {favAiBase.source === 'chat' ? 'Chat IA' : 'Biblioteca'}
+                    </Badge>
+                  </div>
+                  <p className="text-tag-semibold text-primary-dark mb-[12px]">{favAiBase.title}</p>
+
+                  {favAiBase.source === 'library' ? (
+                    <>
+                      <div className="mb-[12px]">
+                        <span className="text-desc-medium text-content-text uppercase tracking-wider">Composição</span>
+                        <div className="text-paragraph text-content-title mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
+                          <ReactMarkdown>{(favAiBase as FormulaAiVersion).aiResultFormula}</ReactMarkdown>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-desc-medium text-content-text uppercase tracking-wider">Modo de uso</span>
+                        <div className="text-paragraph text-content-text mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
+                          <ReactMarkdown>{(favAiBase as FormulaAiVersion).aiResultInstructions}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="prose prose-sm max-w-none prose-headings:text-content-title prose-p:text-content-text prose-strong:text-primary-dark prose-li:text-content-text">
+                      <ReactMarkdown>{(favAiBase as ChatFavorite).content}</ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+
+                <form onSubmit={handleFavAiModify} className="space-y-[16px]">
+                  <div>
+                    <label className="block text-tag-semibold text-content-title mb-[12px]">
+                      O que você deseja alterar?
+                    </label>
+                    <Textarea
+                      value={favAiRequest}
+                      onChange={(e) => setFavAiRequest(e.target.value)}
+                      placeholder="Ex: Quero uma versão para pele oleosa, ajuste a concentração do retinol..."
+                      rows={4}
+                      required
+                    />
+                    <div className="flex flex-wrap gap-[6px] mt-[8px]">
+                      {[
+                        'Versão para pele oleosa',
+                        'Versão para pele sensível',
+                        'Aumentar hidratação',
+                        'Reduzir concentrações',
+                        'Adaptar para uso noturno',
+                        'Remover ativos agressivos',
+                      ].map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => setFavAiRequest(suggestion)}
+                          className="inline-flex items-center rounded-huge px-[10px] py-[4px] text-desc-regular bg-base-disable text-content-text hover:bg-primary-light transition-colors"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Button type="submit" disabled={favAiLoading || !favAiRequest.trim()} className="w-full">
+                    {favAiLoading ? (
+                      <>
+                        <Loader2 className="w-[16px] h-[16px] animate-spin" />
+                        Processando com IA...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-[16px] h-[16px]" strokeWidth={1.5} />
+                        Modificar com IA
+                      </>
+                    )}
+                  </Button>
+                </form>
+
+                {favAiResult && (
+                  <div className="border-2 border-primary-medium rounded-small p-[20px] bg-primary-light/30">
+                    <div className="flex items-center justify-between mb-[16px]">
+                      <div className="flex items-center gap-[8px]">
+                        <Sparkles className="w-[18px] h-[18px] text-primary-dark" strokeWidth={1.5} />
+                        <h4 className="text-tag-bold text-content-title">Resultado da IA</h4>
+                      </div>
+                      <Button variant="default" size="sm" onClick={handleSaveFavAiResult}>
+                        <Pencil className="w-[14px] h-[14px]" strokeWidth={1.5} />
+                        Salvar Alteração
+                      </Button>
+                    </div>
+                    <p className="text-tag-semibold text-primary-dark mb-[12px]">{favAiResult.title}</p>
+                    <div className="mb-[12px]">
+                      <span className="text-desc-medium text-content-text uppercase tracking-wider">
+                        Composição ajustada
+                      </span>
+                      <div className="text-paragraph text-content-title mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
+                        <ReactMarkdown>{favAiResult.composition}</ReactMarkdown>
+                      </div>
+                    </div>
+                    {favAiResult.instructions && (
+                      <div>
+                        <span className="text-desc-medium text-content-text uppercase tracking-wider">
+                          Modo de uso ajustado
+                        </span>
+                        <div className="text-paragraph text-content-text mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
+                          <ReactMarkdown>{favAiResult.instructions}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </DrawerBody>
         </DrawerContent>
