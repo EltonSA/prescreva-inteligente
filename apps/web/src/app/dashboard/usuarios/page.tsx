@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Pencil, Search, Trash2, ShieldBan, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { DualUsdBrlPair } from '@/components/metrics/dual-usd-brl'
 
 interface User {
   id: string
@@ -37,10 +38,16 @@ interface User {
   lastLogin?: string
   createdAt: string
   _count?: { formulas: number }
+  aiOpenAiCallsThisMonth?: number
+  aiPromptTokensThisMonth?: number
+  aiCompletionTokensThisMonth?: number
+  aiEstimatedUsdThisMonth?: number
+  aiAvgUsdPerCallThisMonth?: number
 }
 
 export default function UsuariosPage() {
   const [users, setUsers] = useState<User[]>([])
+  const [usdToBrlRate, setUsdToBrlRate] = useState(5.05)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -56,8 +63,9 @@ export default function UsuariosPage() {
   useEffect(() => { loadUsers() }, [])
 
   async function loadUsers() {
-    const data = await api.get<User[]>('/users', { skipCache: true })
-    setUsers(data)
+    const data = await api.get<{ users: User[]; usdToBrlRate?: number }>('/users', { skipCache: true })
+    setUsers(data.users)
+    setUsdToBrlRate(typeof data.usdToBrlRate === 'number' && data.usdToBrlRate > 0 ? data.usdToBrlRate : 5.05)
     setLoading(false)
   }
 
@@ -139,7 +147,10 @@ export default function UsuariosPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 lg:mb-[24px]">
         <div>
           <h1 className="text-h2 lg:text-h1 text-content-title">Gerenciamento de Usuários</h1>
-          <p className="text-paragraph text-content-text mt-1 lg:mt-[12px]">Gerencie os usuários do sistema</p>
+          <p className="text-paragraph text-content-text mt-1 lg:mt-[12px]">
+            Gerencie os usuários do sistema. Uso OpenAI (chamadas, tokens, custo estimado) no mês atual (UTC). Valores em
+            real usam o <code className="text-xs bg-base-border/40 px-1 rounded">bid</code> da AwesomeAPI (cache 5 min); se falhar, <code className="text-xs bg-base-border/40 px-1 rounded">USD_BRL_RATE</code> no .env.
+          </p>
         </div>
         <Button onClick={openCreate} className="self-start sm:self-auto">
           <Plus className="w-[18px] h-[18px]" strokeWidth={1.5} />
@@ -171,6 +182,9 @@ export default function UsuariosPage() {
                   <th className="text-left py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Admin</th>
                   <th className="text-left py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Status</th>
                   <th className="text-left py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Fórmulas</th>
+                  <th className="text-center py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Chamadas IA</th>
+                  <th className="text-center py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider min-w-[140px]">Tokens</th>
+                  <th className="text-center py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider min-w-[120px]">Gasto est.</th>
                   <th className="text-left py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Último login</th>
                   <th className="text-right py-[12px] px-[12px] text-desc-medium text-content-text uppercase tracking-wider">Ações</th>
                 </tr>
@@ -204,6 +218,37 @@ export default function UsuariosPage() {
                     </td>
                     <td className="py-[12px] px-[12px] text-paragraph text-content-text">
                       {user._count?.formulas || 0}
+                    </td>
+                    <td className="py-[12px] px-[12px] text-center text-paragraph text-content-title">
+                      {user.aiOpenAiCallsThisMonth ?? 0}
+                    </td>
+                    <td className="py-[12px] px-[12px] text-center text-desc-regular text-content-text">
+                      {(user.aiOpenAiCallsThisMonth ?? 0) > 0 ? (
+                        <span>
+                          {(user.aiPromptTokensThisMonth ?? 0).toLocaleString('pt-BR')} entrada ·{' '}
+                          {(user.aiCompletionTokensThisMonth ?? 0).toLocaleString('pt-BR')} saída
+                        </span>
+                      ) : (
+                        <span className="text-content-text/50">—</span>
+                      )}
+                    </td>
+                    <td className="py-[12px] px-[12px] text-center text-desc-regular text-content-text">
+                      {(user.aiOpenAiCallsThisMonth ?? 0) > 0 ? (
+                        <div className="flex flex-col gap-1 items-center">
+                          <DualUsdBrlPair
+                            usd={user.aiEstimatedUsdThisMonth ?? 0}
+                            rate={usdToBrlRate}
+                            mode="total"
+                          />
+                          <DualUsdBrlPair
+                            usd={user.aiAvgUsdPerCallThisMonth ?? 0}
+                            rate={usdToBrlRate}
+                            mode="avg"
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-content-text/50">—</span>
+                      )}
                     </td>
                     <td className="py-[12px] px-[12px] text-paragraph text-content-text">
                       {user.lastLogin
@@ -241,14 +286,14 @@ export default function UsuariosPage() {
                 ))}
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="py-[48px] text-center">
+                    <td colSpan={10} className="py-[48px] text-center">
                       <div className="w-6 h-6 border-2 border-primary-dark border-t-transparent rounded-full animate-spin mx-auto" />
                     </td>
                   </tr>
                 )}
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-[48px] text-center text-content-text">
+                    <td colSpan={10} className="py-[48px] text-center text-content-text">
                       Nenhum usuário encontrado
                     </td>
                   </tr>

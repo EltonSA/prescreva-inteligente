@@ -3,27 +3,49 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../config/prisma'
 import { adminGuard } from '../../middleware/auth'
+import { resolveUsdToBrlRate } from '../../config/usd-brl'
+import { aggregateOpenAiByUserForUtcMonth } from '../../services/ai-usage.service'
 
 export async function usersRoutes(app: FastifyInstance) {
   app.addHook('preHandler', adminGuard)
 
   app.get('/users', async () => {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        profession: true,
-        role: true,
-        isActive: true,
-        lastLogin: true,
-        createdAt: true,
-        _count: { select: { formulas: true } },
-      },
-      orderBy: { createdAt: 'desc' },
+    const [users, openAiByUser] = await Promise.all([
+      prisma.user.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          profession: true,
+          role: true,
+          isActive: true,
+          lastLogin: true,
+          createdAt: true,
+          _count: { select: { formulas: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      aggregateOpenAiByUserForUtcMonth(),
+    ])
+
+    const list = users.map((u) => {
+      const ai = openAiByUser.get(u.id)
+      const calls = ai?.calls ?? 0
+      const estimatedUsd = ai?.estimatedUsd ?? 0
+      const avgUsdPerCall =
+        calls > 0 ? Math.round((estimatedUsd / calls) * 10000) / 10000 : 0
+      return {
+        ...u,
+        aiOpenAiCallsThisMonth: calls,
+        aiPromptTokensThisMonth: ai?.promptTokens ?? 0,
+        aiCompletionTokensThisMonth: ai?.completionTokens ?? 0,
+        aiEstimatedUsdThisMonth: estimatedUsd,
+        aiAvgUsdPerCallThisMonth: avgUsdPerCall,
+      }
     })
-    return users
+
+    return { users: list, usdToBrlRate: await resolveUsdToBrlRate() }
   })
 
   app.get('/users/:id', async (request, reply) => {

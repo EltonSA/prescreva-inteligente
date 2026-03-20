@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma'
 import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { recordAiUsage } from './ai-usage.service'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -95,23 +96,79 @@ async function getAllAtivos(): Promise<ReferencedAtivo[]> {
 }
 
 async function searchRelevantContext(query: string): Promise<{ context: string; ativos: ReferencedAtivo[] }> {
-  const ativos = await prisma.ativo.findMany({
-    select: {
-      id: true, name: true, description: true, fileName: true,
-      usageType: true, compatibleForms: true, category: true,
-      concentrationMin: true, concentrationMax: true,
-      contraindications: true, technicalNotes: true,
-    },
-  })
+  const [ativos, catalogUsageItems] = await Promise.all([
+    prisma.ativo.findMany({
+      select: {
+        id: true, name: true, description: true, fileName: true,
+        usageType: true, compatibleForms: true,
+        usageScope: true,
+        concentrationMin: true, concentrationMax: true,
+        contraindications: true, technicalNotes: true,
+        usageTypeItem: { select: { group: true, name: true } },
+      },
+    }),
+    prisma.ativoUsageItem.findMany({
+      where: { group: { in: ['EXTERNO', 'INTERNO'] } },
+      select: { group: true, name: true },
+      orderBy: [{ group: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+  ])
+
+  const internoCatalogNames = catalogUsageItems
+    .filter((i) => i.group === 'INTERNO')
+    .map((i) => i.name)
+  const externoCatalogNames = catalogUsageItems
+    .filter((i) => i.group === 'EXTERNO')
+    .map((i) => i.name)
+
+  const catalogNamesLine = (label: string, names: string[]) =>
+    names.length > 0 ? `${label}: ${names.join(', ')}` : `${label}: (nenhum tipo cadastrado)`
 
   if (ativos.length === 0) return { context: '', ativos: [] }
 
   const ativoLines = ativos.map((a) => {
     const parts = [`### ${a.name}`]
     if (a.description) parts.push(`Descrição: ${a.description}`)
-    if (a.usageType) parts.push(`Via de uso: ${a.usageType}`)
+    if (a.usageTypeItem) {
+      const ambos =
+        a.usageScope === 'AMBOS' || (a.usageScope == null && a.usageTypeItem.group === 'AMBOS')
+      if (ambos) {
+        parts.push(`Via de uso: Ambos (externo e interno) — ${a.usageTypeItem.name}`)
+      } else {
+        const g =
+          a.usageTypeItem.group === 'EXTERNO'
+            ? 'Uso externo'
+            : a.usageTypeItem.group === 'INTERNO'
+              ? 'Uso interno'
+              : 'Ambos'
+        parts.push(`Via de uso: ${g} — ${a.usageTypeItem.name}`)
+      }
+    } else if (a.usageScope && !a.usageTypeItem) {
+      if (a.usageScope === 'AMBOS') {
+        parts.push(
+          'Via de uso: Ambos — aplica-se a todo o catálogo de tipos internos e externos (escopo amplo).',
+        )
+        parts.push(catalogNamesLine('Tipos cadastrados (uso interno)', internoCatalogNames))
+        parts.push(catalogNamesLine('Tipos cadastrados (uso externo)', externoCatalogNames))
+      } else if (a.usageScope === 'INTERNO') {
+        parts.push(
+          'Via de uso: Uso interno — aplica-se a todo o catálogo de vias/formas internas cadastradas.',
+        )
+        parts.push(catalogNamesLine('Tipos cadastrados neste escopo', internoCatalogNames))
+      } else if (a.usageScope === 'EXTERNO') {
+        parts.push(
+          'Via de uso: Uso externo — aplica-se a todo o catálogo de vias/formas externas cadastradas.',
+        )
+        parts.push(catalogNamesLine('Tipos cadastrados neste escopo', externoCatalogNames))
+      }
+      const usageDetail = a.usageType?.trim()
+      if (usageDetail && usageDetail !== 'Não informado') {
+        parts.push(`Detalhe da via (complemento / IA): ${usageDetail}`)
+      }
+    } else if (a.usageType) {
+      parts.push(`Via de uso: ${a.usageType}`)
+    }
     if (a.compatibleForms) parts.push(`Formas compatíveis: ${a.compatibleForms}`)
-    if (a.category) parts.push(`Categoria: ${a.category}`)
     if (a.concentrationMin || a.concentrationMax) {
       const range = [a.concentrationMin, a.concentrationMax].filter(Boolean).join(' a ')
       parts.push(`Concentração usual: ${range}`)
@@ -159,18 +216,24 @@ async function chatWithOpenAI(
   messages: ChatMessage[],
   apiKey: string,
   model: string
-): Promise<string> {
+): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
+  const m = model || 'gpt-4o-mini'
   const openai = new OpenAI({ apiKey })
   const response = await openai.chat.completions.create({
-    model: model || 'gpt-4o-mini',
+    model: m,
     messages: [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      ...messages.map((msg) => ({ role: msg.role as 'user' | 'assistant', content: msg.content })),
     ],
     temperature: 0.7,
     max_tokens: 2000,
   })
-  return response.choices[0]?.message?.content || 'Sem resposta da IA.'
+  const u = response.usage
+  return {
+    text: response.choices[0]?.message?.content || 'Sem resposta da IA.',
+    promptTokens: u?.prompt_tokens ?? 0,
+    completionTokens: u?.completion_tokens ?? 0,
+  }
 }
 
 async function chatWithClaude(
@@ -240,9 +303,24 @@ export async function processChat(context: ChatContext): Promise<ChatResult> {
   let responseText: string
 
   switch (settings.provider) {
-    case 'OPENAI':
-      responseText = await chatWithOpenAI(systemPrompt, context.messages, settings.apiKey, settings.model)
+    case 'OPENAI': {
+      const { text, promptTokens, completionTokens } = await chatWithOpenAI(
+        systemPrompt,
+        context.messages,
+        settings.apiKey,
+        settings.model
+      )
+      responseText = text
+      recordAiUsage({
+        provider: 'OPENAI',
+        source: 'CHAT',
+        model: settings.model || 'gpt-4o-mini',
+        promptTokens,
+        completionTokens,
+        userId: context.userId,
+      }).catch((err) => console.error('[ai-usage]', err))
       break
+    }
     case 'CLAUDE':
       responseText = await chatWithClaude(systemPrompt, context.messages, settings.apiKey, settings.model)
       break

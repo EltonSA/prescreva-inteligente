@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma'
 import OpenAI from 'openai'
+import { recordAiUsage } from './ai-usage.service'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -8,6 +9,8 @@ interface FormulaModificationInput {
   userRequest: string
   userProfession: string
   patientContext: string
+  /** Quem disparou a chamada (para métricas por usuário). */
+  userId?: string
 }
 
 interface FormulaModificationResult {
@@ -71,14 +74,26 @@ export async function processFormulaModification(
 
   switch (settings.provider) {
     case 'OPENAI': {
+      const m = settings.model || 'gpt-4o-mini'
       const openai = new OpenAI({ apiKey: settings.apiKey })
       const res = await openai.chat.completions.create({
-        model: settings.model || 'gpt-4o-mini',
+        model: m,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 2000,
       })
       raw = res.choices[0]?.message?.content || ''
+      const u = res.usage
+      if (u) {
+        recordAiUsage({
+          provider: 'OPENAI',
+          source: 'FORMULA_AI',
+          model: m,
+          promptTokens: u.prompt_tokens ?? 0,
+          completionTokens: u.completion_tokens ?? 0,
+          userId: input.userId,
+        }).catch((err) => console.error('[ai-usage]', err))
+      }
       break
     }
     case 'CLAUDE': {

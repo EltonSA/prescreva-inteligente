@@ -10,7 +10,8 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Settings, Key, Brain, Cpu, Save, Check } from 'lucide-react'
+import { Key, Brain, Cpu, Save, Check, PieChart } from 'lucide-react'
+import { DualUsdBrlInline } from '@/components/metrics/dual-usd-brl'
 
 interface AiSettings {
   id: string
@@ -19,6 +20,32 @@ interface AiSettings {
   model: string
   hasApiKey: boolean
 }
+
+interface UsageSummary {
+  period: { start: string }
+  budgetUsd: number
+  totals: {
+    calls: number
+    promptTokens: number
+    completionTokens: number
+    estimatedUsd: number
+  }
+  percentOfBudget: number
+  bySource: Record<
+    string,
+    { calls: number; promptTokens: number; completionTokens: number; estimatedUsd: number }
+  >
+  usdToBrlRate?: number
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  CHAT: 'Chat (prescrições)',
+  PDF_ANALYSIS: 'Análise de PDF dos ativos',
+  FORMULA_AI: 'Ajustes na biblioteca de fórmulas',
+}
+
+const usdFmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' })
+const brlFmtBudget = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const providerModels: Record<string, string[]> = {
   OPENAI: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
@@ -38,6 +65,8 @@ export default function ConfiguracoesPage() {
   })
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
+  const [usageError, setUsageError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isAdmin) {
@@ -45,6 +74,7 @@ export default function ConfiguracoesPage() {
       return
     }
     loadSettings()
+    loadUsage()
   }, [isAdmin, router])
 
   async function loadSettings() {
@@ -59,6 +89,17 @@ export default function ConfiguracoesPage() {
       })
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  async function loadUsage() {
+    try {
+      setUsageError(null)
+      const data = await api.get<UsageSummary>('/ai/usage-summary')
+      setUsage(data)
+    } catch (e: unknown) {
+      setUsage(null)
+      setUsageError(e instanceof Error ? e.message : 'Não foi possível carregar o consumo.')
     }
   }
 
@@ -77,6 +118,7 @@ export default function ConfiguracoesPage() {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
       loadSettings()
+      loadUsage()
     } catch (err: any) {
       alert(err.message)
     } finally {
@@ -107,6 +149,94 @@ export default function ConfiguracoesPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-[24px]">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex items-center gap-[12px]">
+              <PieChart className="w-[24px] h-[24px] text-primary-dark" strokeWidth={1.5} />
+              <CardTitle>Consumo OpenAI (mês atual)</CardTitle>
+            </div>
+            <CardDescription>
+              Estimativa com base nos tokens registrados; a fatura da OpenAI pode diferir. Teto em USD:{' '}
+              <code className="text-xs bg-base-border/40 px-1 rounded">OPENAI_MONTHLY_BUDGET_USD</code> (padrão 20).
+              Câmbio em tempo real: AwesomeAPI (campo <code className="text-xs bg-base-border/40 px-1 rounded">bid</code>), cache de 5 min no servidor. Se falhar, usa{' '}
+              <code className="text-xs bg-base-border/40 px-1 rounded">USD_BRL_RATE</code> no .env.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-[16px]">
+            {usageError && (
+              <p className="text-desc-medium text-red-600">{usageError}</p>
+            )}
+            {usage && (
+              <>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-h3 flex flex-col gap-1">
+                    <span className="font-semibold text-content-title">
+                      {usdFmt.format(usage.totals.estimatedUsd)}
+                      <span className="text-paragraph text-content-text font-semibold">
+                        {' '}
+                        / {usdFmt.format(usage.budgetUsd)}
+                      </span>
+                    </span>
+                    <span className="text-paragraph font-semibold text-primary-dark">
+                      BRL {brlFmtBudget.format(usage.totals.estimatedUsd * (usage.usdToBrlRate ?? 5.05))}
+                      {' / '}
+                      BRL {brlFmtBudget.format(usage.budgetUsd * (usage.usdToBrlRate ?? 5.05))}
+                    </span>
+                  </span>
+                  <span
+                    className={
+                      usage.percentOfBudget >= 100
+                        ? 'text-tag-semibold text-red-600'
+                        : usage.percentOfBudget >= 90
+                          ? 'text-tag-semibold text-red-600'
+                          : usage.percentOfBudget >= 75
+                            ? 'text-tag-semibold text-amber-700'
+                            : 'text-desc-medium text-content-text'
+                    }
+                  >
+                    {usage.percentOfBudget.toFixed(1)}% do orçamento
+                    {usage.percentOfBudget > 100 ? ' (acima do teto)' : ''}
+                  </span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-base-border/60 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      usage.percentOfBudget >= 90
+                        ? 'bg-red-500'
+                        : usage.percentOfBudget >= 75
+                          ? 'bg-amber-500'
+                          : 'bg-primary-dark'
+                    }`}
+                    style={{ width: `${Math.min(100, usage.percentOfBudget)}%` }}
+                  />
+                </div>
+                <p className="text-desc-regular text-content-text">
+                  {usage.totals.calls} chamada(s) · {usage.totals.promptTokens.toLocaleString('pt-BR')} tokens de
+                  entrada · {usage.totals.completionTokens.toLocaleString('pt-BR')} tokens de saída
+                </p>
+                {Object.keys(usage.bySource).length > 0 && (
+                  <ul className="text-desc-regular text-content-text space-y-1 border-t border-base-border/60 pt-3">
+                    {Object.entries(usage.bySource).map(([key, row]) => (
+                      <li key={key} className="flex flex-wrap justify-between gap-2">
+                        <span>{SOURCE_LABELS[key] ?? key}</span>
+                        <span>
+                          <DualUsdBrlInline usd={row.estimatedUsd} rate={usage.usdToBrlRate ?? 5.05} mode="total" />
+                          {' · '}
+                          {row.calls} chamada(s)
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-desc-regular text-content-text/80">
+                  Contagem desde {new Date(usage.period.start).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} (UTC).
+                  Só entram chamadas feitas com o provedor OpenAI após esta atualização.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center gap-[12px]">

@@ -241,6 +241,7 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
         userRequest: data.userRequest,
         userProfession: fullUser.profession || 'Não informada',
         patientContext,
+        userId: user.id,
       })
 
       const aiVersion = await prisma.formulaAiVersion.create({
@@ -302,6 +303,7 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
         userRequest: data.userRequest,
         userProfession: fullUser.profession || 'Não informada',
         patientContext: '',
+        userId: user.id,
       })
       return result
     } catch (err: any) {

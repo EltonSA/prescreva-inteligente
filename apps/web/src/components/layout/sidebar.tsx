@@ -28,9 +28,9 @@ const navigation = [
   { name: 'Fórmulas', href: '/dashboard/formulas', icon: BookOpen, roles: ['ADMIN', 'USER'] },
   { name: 'Ativos', href: '/dashboard/ativos', icon: FlaskConical, roles: ['ADMIN', 'USER'] },
   { name: 'Prescrever com IA', href: '/dashboard/ia', icon: Sparkles, roles: ['ADMIN', 'USER'] },
-  { name: 'Configurações', href: '/dashboard/configuracoes', icon: SettingsIcon, roles: ['ADMIN'] },
   { name: 'Minhas sugestões', href: '/dashboard/minhas-sugestoes', icon: Inbox, roles: ['ADMIN', 'USER'] },
   { name: 'Sugestões (todos)', href: '/dashboard/sugestoes', icon: MessageSquareText, roles: ['ADMIN'] },
+  { name: 'Configurações', href: '/dashboard/configuracoes', icon: SettingsIcon, roles: ['ADMIN'] },
 ]
 
 interface SidebarProps {

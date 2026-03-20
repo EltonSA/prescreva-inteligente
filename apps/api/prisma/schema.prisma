@@ -57,6 +57,7 @@ model User {
   conversations    Conversation[]
   feedbackTickets         FeedbackTicket[]
   feedbackTicketMessages  FeedbackTicketMessage[]
+  aiUsageLogs             AiUsageLog[]
 
   @@map("users")
 }
@@ -81,15 +82,40 @@ model Patient {
   @@map("patients")
 }
 
+enum AtivoUsageGroup {
+  EXTERNO
+  INTERNO
+  AMBOS
+}
+
+model AtivoUsageItem {
+  id        String          @id @default(uuid())
+  group     AtivoUsageGroup
+  name      String
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  ativos Ativo[]
+
+  @@unique([group, name])
+  @@index([group, sortOrder])
+  @@map("ativo_usage_items")
+}
+
 model Ativo {
   id                String   @id @default(uuid())
   name              String
   description       String?
   filePath          String?
   fileName          String?
-  usageType         String?  // Tópico, Oral, Injetável, Tópico/Oral
+  usageType         String?  // legado / texto livre da IA (opcional)
+  usageTypeItemId   String?
+  usageTypeItem     AtivoUsageItem? @relation(fields: [usageTypeItemId], references: [id], onDelete: SetNull)
+  /// Escopo no ativo: EXTERNO/INTERNO ou AMBOS (item do catálogo continua sendo só externo ou interno)
+  usageScope        AtivoUsageGroup?
   compatibleForms   String?  // Creme, Gel, Sérum, Loção, Cápsula (comma-separated)
-  category          String?  // Despigmentante, Antioxidante, Hidratante, Ácido, Vitamina
+  category          String?  // legado (não usado na UI; pode ser removido em migração futura)
   concentrationMin  String?  // e.g. "0.5%"
   concentrationMax  String?  // e.g. "5%"
   contraindications String?  // Texto livre: gestantes, pele sensível, etc.
@@ -99,6 +125,7 @@ model Ativo {
 
   embeddings Embedding[]
 
+  @@index([usageTypeItemId])
   @@map("ativos")
 }
 
@@ -128,6 +155,29 @@ model AiSettings {
   updatedAt    DateTime   @updatedAt
 
   @@map("ai_settings")
+}
+
+enum AiUsageSource {
+  CHAT
+  PDF_ANALYSIS
+  FORMULA_AI
+}
+
+/// Registro de tokens retornados pela API (OpenAI) para estimar custo no mês.
+model AiUsageLog {
+  id               String         @id @default(uuid())
+  provider         AIProvider
+  source           AiUsageSource
+  model            String
+  promptTokens     Int            @default(0)
+  completionTokens Int            @default(0)
+  userId           String?
+  user             User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+
+  @@index([provider, createdAt])
+  @@index([userId, createdAt])
+  @@map("ai_usage_logs")
 }
 
 model Embedding {

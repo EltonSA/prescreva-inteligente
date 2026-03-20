@@ -12,6 +12,7 @@ import {
   Briefcase, CalendarDays,
 } from 'lucide-react'
 import Link from 'next/link'
+import { DualUsdBrlPair } from '@/components/metrics/dual-usd-brl'
 
 interface RecentFormula {
   id: string
@@ -37,6 +38,12 @@ interface TopUser {
   patientCount: number
   formulaCount: number
   conversationCount: number
+  /** OpenAI no mês (UTC). */
+  aiOpenAiCallsThisMonth?: number
+  aiPromptTokensThisMonth?: number
+  aiCompletionTokensThisMonth?: number
+  aiEstimatedUsdThisMonth?: number
+  aiAvgUsdPerCallThisMonth?: number
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/proxy'
@@ -68,6 +75,8 @@ interface Stats {
   topUsers?: TopUser[]
   formulasByMonth?: MonthData[]
   usersByProfession?: ProfessionData[]
+  /** Câmbio USD→BRL vindo da API (env `USD_BRL_RATE`). */
+  usdToBrlRate?: number
 }
 
 function calcVariation(current: number, previous: number): { value: number; type: 'up' | 'down' | 'neutral' } {
@@ -374,6 +383,10 @@ export default function DashboardPage() {
               <Users className="w-[18px] h-[18px] text-primary-dark" strokeWidth={1.5} />
               Ranking de Usuários
             </CardTitle>
+            <p className="text-desc-regular text-content-text mt-1">
+              Uso <span className="text-tag-medium text-content-title">OpenAI</span> no mês atual (UTC), por quem disparou — tokens, custo estimado em US$ e em BRL (
+              câmbio AwesomeAPI <code className="text-xs bg-base-border/40 px-1 rounded">bid</code>, cache 5 min; fallback <code className="text-xs bg-base-border/40 px-1 rounded">USD_BRL_RATE</code>).
+            </p>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -384,11 +397,16 @@ export default function DashboardPage() {
                     <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider">Pacientes</th>
                     <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider">Fórmulas</th>
                     <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider">Conversas</th>
+                    <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider">Chamadas</th>
+                    <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider min-w-[140px]">Tokens</th>
+                    <th className="text-center py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider min-w-[120px]">Gasto est.</th>
                     <th className="text-right py-[10px] px-[8px] text-desc-medium text-content-text uppercase tracking-wider">Último acesso</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.topUsers.map((u, i) => (
+                  {stats.topUsers.map((u, i) => {
+                    const fx = stats.usdToBrlRate ?? 5.05
+                    return (
                     <tr key={u.id} className="border-b border-base-border/50 hover:bg-primary-light/20 transition-colors">
                       <td className="py-[10px] px-[8px]">
                         <div className="flex items-center gap-[10px]">
@@ -413,14 +431,46 @@ export default function DashboardPage() {
                       <td className="py-[10px] px-[8px] text-center text-tag-medium text-content-title">{u.patientCount}</td>
                       <td className="py-[10px] px-[8px] text-center text-tag-medium text-content-title">{u.formulaCount}</td>
                       <td className="py-[10px] px-[8px] text-center text-tag-medium text-content-title">{u.conversationCount}</td>
+                      <td className="py-[10px] px-[8px] text-center text-tag-medium text-content-title">
+                        {u.aiOpenAiCallsThisMonth ?? 0}
+                      </td>
+                      <td className="py-[10px] px-[8px] text-center text-desc-regular text-content-text">
+                        {(u.aiOpenAiCallsThisMonth ?? 0) > 0 ? (
+                          <span>
+                            {(u.aiPromptTokensThisMonth ?? 0).toLocaleString('pt-BR')} entrada ·{' '}
+                            {(u.aiCompletionTokensThisMonth ?? 0).toLocaleString('pt-BR')} saída
+                          </span>
+                        ) : (
+                          <span className="text-content-text/50">—</span>
+                        )}
+                      </td>
+                      <td className="py-[10px] px-[8px] text-center text-desc-regular text-content-text">
+                        {(u.aiOpenAiCallsThisMonth ?? 0) > 0 ? (
+                          <div className="flex flex-col gap-1 items-center">
+                            <DualUsdBrlPair
+                              usd={u.aiEstimatedUsdThisMonth ?? 0}
+                              rate={fx}
+                              mode="total"
+                            />
+                            <DualUsdBrlPair
+                              usd={u.aiAvgUsdPerCallThisMonth ?? 0}
+                              rate={fx}
+                              mode="avg"
+                            />
+                          </div>
+                        ) : (
+                          <span className="text-content-text/50">—</span>
+                        )}
+                      </td>
                       <td className="py-[10px] px-[8px] text-right text-desc-regular text-content-text">
                         {formatDateTime(u.lastLogin)}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                   {stats.topUsers.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-[24px] text-center text-content-text">Nenhum usuário encontrado</td>
+                      <td colSpan={8} className="py-[24px] text-center text-content-text">Nenhum usuário encontrado</td>
                     </tr>
                   )}
                 </tbody>

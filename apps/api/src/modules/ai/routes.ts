@@ -4,6 +4,12 @@ import { prisma } from '../../config/prisma'
 import { authGuard, adminGuard } from '../../middleware/auth'
 import { processChat } from '../../services/ai.service'
 import { processAtivoFile } from '../../services/embedding.service'
+import { resolveUsdToBrlRate } from '../../config/usd-brl'
+import {
+  aggregateOpenAiByUserForUtcMonth,
+  getOpenAiUsageSummary,
+  type OpenAiUserMonthAgg,
+} from '../../services/ai-usage.service'
 
 export async function aiRoutes(app: FastifyInstance) {
   app.post('/ai/chat', { preHandler: [authGuard] }, async (request, reply) => {
@@ -41,6 +47,16 @@ export async function aiRoutes(app: FastifyInstance) {
       model: settings.model,
       hasApiKey: !!settings.apiKey,
     }
+  })
+
+  app.get('/ai/usage-summary', { preHandler: [adminGuard] }, async () => {
+    const raw = Number(process.env.OPENAI_MONTHLY_BUDGET_USD)
+    const budgetUsd = Number.isFinite(raw) && raw > 0 ? raw : 20
+    const [summary, usdToBrlRate] = await Promise.all([
+      getOpenAiUsageSummary(budgetUsd),
+      resolveUsdToBrlRate(),
+    ])
+    return { ...summary, usdToBrlRate }
   })
 
   app.put('/ai/settings', { preHandler: [adminGuard] }, async (request) => {
@@ -168,7 +184,13 @@ export async function aiRoutes(app: FastifyInstance) {
       )
     }
 
-    const r = await Promise.all(queries)
+    const [r, openAiByUser, usdToBrlRate] = await Promise.all([
+      Promise.all(queries),
+      isAdmin
+        ? aggregateOpenAiByUserForUtcMonth()
+        : Promise.resolve(new Map<string, OpenAiUserMonthAgg>()),
+      isAdmin ? resolveUsdToBrlRate() : Promise.resolve(5.05),
+    ])
 
     const totalFormulas = r[1] + r[2]
     const totalFavorites = r[5] + r[6]
@@ -188,14 +210,31 @@ export async function aiRoutes(app: FastifyInstance) {
     }
 
     if (isAdmin) {
+      result.usdToBrlRate = usdToBrlRate
       result.totalUsers = r[16]
       result.usersThisMonth = r[17]
-      result.topUsers = r[18].map((u: any) => ({
-        id: u.id, name: u.name, profession: u.profession, avatar: u.avatar,
-        lastLogin: u.lastLogin, patientCount: u._count.patients,
-        formulaCount: u._count.formulas + u._count.formulaAiVersions,
-        conversationCount: u._count.conversations,
-      }))
+      result.topUsers = r[18].map((u: any) => {
+        const ai = openAiByUser.get(u.id)
+        const calls = ai?.calls ?? 0
+        const estimatedUsd = ai ? Math.round(ai.estimatedUsd * 10000) / 10000 : 0
+        const avgUsdPerCall =
+          calls > 0 ? Math.round((estimatedUsd / calls) * 10000) / 10000 : 0
+        return {
+          id: u.id,
+          name: u.name,
+          profession: u.profession,
+          avatar: u.avatar,
+          lastLogin: u.lastLogin,
+          patientCount: u._count.patients,
+          formulaCount: u._count.formulas + u._count.formulaAiVersions,
+          conversationCount: u._count.conversations,
+          aiOpenAiCallsThisMonth: calls,
+          aiPromptTokensThisMonth: ai?.promptTokens ?? 0,
+          aiCompletionTokensThisMonth: ai?.completionTokens ?? 0,
+          aiEstimatedUsdThisMonth: estimatedUsd,
+          aiAvgUsdPerCallThisMonth: avgUsdPerCall,
+        }
+      })
       result.formulasByMonth = r[19]
       result.usersByProfession = r[20]
     }

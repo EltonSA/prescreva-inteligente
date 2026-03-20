@@ -1,5 +1,7 @@
 import { prisma } from '../config/prisma'
+import type { AtivoUsageGroup } from '@prisma/client'
 import OpenAI from 'openai'
+import { recordAiUsage } from './ai-usage.service'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import fs from 'fs'
@@ -8,13 +10,28 @@ import pdfParse from 'pdf-parse'
 
 interface AtivoAnalysis {
   description: string
+  /** Escopo “pai” alinhado ao cadastro do sistema (quando a IA conseguir inferir). */
+  usageScope?: AtivoUsageGroup
+  /** Detalhe da via; deve ser coerente com usageScope quando este existir. */
   usageType: string
   compatibleForms: string
-  category: string
   concentrationMin: string
   concentrationMax: string
   contraindications: string
   technicalNotes: string
+}
+
+function normalizeUsageScopeFromAnalysis(raw: unknown): AtivoUsageGroup | undefined {
+  if (raw == null) return undefined
+  const t = String(raw).trim()
+  if (!t || /^n[aã]o\s+informad/i.test(t)) return undefined
+  const u = t.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (u === 'EXTERNO' || u === 'USO_EXTERNO' || u === 'USO EXTERNO') return 'EXTERNO'
+  if (u === 'INTERNO' || u === 'USO_INTERNO' || u === 'USO INTERNO') return 'INTERNO'
+  if (u === 'AMBOS' || u === 'EXTERNO_E_INTERNO' || u === 'INTERNO_E_EXTERNO') return 'AMBOS'
+  if (u.includes('TOPICO') || u.includes('DERMATO') || u.includes('EXTERNA')) return 'EXTERNO'
+  if (u.includes('ORAL') || u.includes('SISTEM') || u.includes('INJET')) return 'INTERNO'
+  return undefined
 }
 
 const ANALYSIS_PROMPT = `Você é um farmacêutico especialista em ativos para formulações magistrais.
@@ -22,9 +39,9 @@ Analise o texto extraído de um PDF sobre um ativo farmacêutico e retorne APENA
 
 {
   "description": "Resumo conciso do ativo: o que é, para que serve, principais propriedades (máximo 3 frases)",
-  "usageType": "Via de administração principal. Valores possíveis: Tópico, Oral, Injetável, Tópico/Oral, Tópico/Injetável, Oral/Injetável",
+  "usageScope": "Classificação do escopo principal, EXATAMENTE uma destas strings: EXTERNO, INTERNO ou AMBOS. EXTERNO = uso tópico/dermocosmético/capilar externo ou outra via exclusivamente externa descrita no PDF. INTERNO = oral, injetável sistêmico, suplemento oral, uso que não seja predominantemente tópico externo. AMBOS = o documento deixa claro que o ativo se aplica a vias internas e externas. Se não for possível decidir com segurança, use Não informado",
+  "usageType": "Via ou forma mais específica inferida do PDF (ex.: Tópico, Oral, Injetável, combinações como Tópico/Oral). Deve ser coerente com usageScope. Se não houver info, Não informado",
   "compatibleForms": "Formas farmacêuticas compatíveis separadas por vírgula. Ex: Creme, Gel, Sérum, Loção, Cápsula, Comprimido, Solução",
-  "category": "Categoria principal do ativo. Ex: Despigmentante, Antioxidante, Hidratante, Anti-aging, Ácido, Vitamina, Peptídeo, Protetor Solar, Anti-inflamatório, Antimicrobiano, Cicatrizante, Tensor, Clareador, Esfoliante, Nutritivo",
   "concentrationMin": "Concentração mínima usual (ex: 0.5%)",
   "concentrationMax": "Concentração máxima usual (ex: 5%)",
   "contraindications": "Contraindicações conhecidas (gestantes, pele sensível, etc). Se não houver info, escreva 'Não informado'",
@@ -35,7 +52,7 @@ REGRAS:
 - Retorne SOMENTE o JSON, sem nenhum texto antes ou depois
 - Não use markdown ou backticks
 - Preencha com base APENAS nas informações do PDF
-- Se não encontrar a informação, use "Não informado"
+- Se não encontrar a informação, use "Não informado" (exceto usageScope: aí use Não informado só quando não der para classificar o escopo)
 - Concentrações devem incluir o símbolo %`
 
 async function getAiSettings() {
@@ -46,10 +63,16 @@ async function getAiSettings() {
   return settings
 }
 
-async function analyzeWithOpenAI(text: string, apiKey: string, model: string): Promise<string> {
+async function analyzeWithOpenAI(
+  text: string,
+  apiKey: string,
+  model: string,
+  userId?: string | null
+): Promise<string> {
+  const m = model || 'gpt-4o-mini'
   const openai = new OpenAI({ apiKey })
   const response = await openai.chat.completions.create({
-    model: model || 'gpt-4o-mini',
+    model: m,
     messages: [
       { role: 'system', content: ANALYSIS_PROMPT },
       { role: 'user', content: `Analise este texto sobre um ativo farmacêutico:\n\n${text}` },
@@ -57,6 +80,17 @@ async function analyzeWithOpenAI(text: string, apiKey: string, model: string): P
     temperature: 0.3,
     max_tokens: 1500,
   })
+  const u = response.usage
+  if (u) {
+    recordAiUsage({
+      provider: 'OPENAI',
+      source: 'PDF_ANALYSIS',
+      model: m,
+      promptTokens: u.prompt_tokens ?? 0,
+      completionTokens: u.completion_tokens ?? 0,
+      userId,
+    }).catch((err) => console.error('[ai-usage]', err))
+  }
   return response.choices[0]?.message?.content || '{}'
 }
 
@@ -91,7 +125,6 @@ function parseAnalysisResponse(raw: string): AtivoAnalysis {
     description: '',
     usageType: '',
     compatibleForms: '',
-    category: '',
     concentrationMin: '',
     concentrationMax: '',
     contraindications: '',
@@ -100,11 +133,12 @@ function parseAnalysisResponse(raw: string): AtivoAnalysis {
 
   try {
     const parsed = JSON.parse(cleaned)
+    const usageScope = normalizeUsageScopeFromAnalysis(parsed.usageScope)
     return {
       description: parsed.description || defaults.description,
+      ...(usageScope !== undefined ? { usageScope } : {}),
       usageType: parsed.usageType || defaults.usageType,
       compatibleForms: parsed.compatibleForms || defaults.compatibleForms,
-      category: parsed.category || defaults.category,
       concentrationMin: parsed.concentrationMin || defaults.concentrationMin,
       concentrationMax: parsed.concentrationMax || defaults.concentrationMax,
       contraindications: parsed.contraindications || defaults.contraindications,
@@ -115,7 +149,10 @@ function parseAnalysisResponse(raw: string): AtivoAnalysis {
   }
 }
 
-export async function analyzePdfBuffer(buffer: Buffer): Promise<AtivoAnalysis | null> {
+export async function analyzePdfBuffer(
+  buffer: Buffer,
+  userId?: string | null
+): Promise<AtivoAnalysis | null> {
   const settings = await getAiSettings()
   if (!settings.apiKey) return null
 
@@ -130,7 +167,7 @@ export async function analyzePdfBuffer(buffer: Buffer): Promise<AtivoAnalysis | 
 
   switch (settings.provider) {
     case 'OPENAI':
-      rawResponse = await analyzeWithOpenAI(truncated, settings.apiKey, settings.model)
+      rawResponse = await analyzeWithOpenAI(truncated, settings.apiKey, settings.model, userId)
       break
     case 'CLAUDE':
       rawResponse = await analyzeWithClaude(truncated, settings.apiKey, settings.model)
@@ -145,7 +182,10 @@ export async function analyzePdfBuffer(buffer: Buffer): Promise<AtivoAnalysis | 
   return parseAnalysisResponse(rawResponse)
 }
 
-export async function analyzePdfContent(ativoId: string): Promise<AtivoAnalysis | null> {
+export async function analyzePdfContent(
+  ativoId: string,
+  userId?: string | null
+): Promise<AtivoAnalysis | null> {
   const settings = await getAiSettings()
   if (!settings.apiKey) return null
 
@@ -173,7 +213,7 @@ export async function analyzePdfContent(ativoId: string): Promise<AtivoAnalysis 
 
   switch (settings.provider) {
     case 'OPENAI':
-      rawResponse = await analyzeWithOpenAI(truncated, settings.apiKey, settings.model)
+      rawResponse = await analyzeWithOpenAI(truncated, settings.apiKey, settings.model, userId)
       break
     case 'CLAUDE':
       rawResponse = await analyzeWithClaude(truncated, settings.apiKey, settings.model)
@@ -193,11 +233,13 @@ export async function analyzePdfContent(ativoId: string): Promise<AtivoAnalysis 
       description: analysis.description || ativo.description,
       usageType: analysis.usageType,
       compatibleForms: analysis.compatibleForms,
-      category: analysis.category,
       concentrationMin: analysis.concentrationMin,
       concentrationMax: analysis.concentrationMax,
       contraindications: analysis.contraindications,
       technicalNotes: analysis.technicalNotes,
+      ...(analysis.usageScope !== undefined
+        ? { usageScope: analysis.usageScope, usageTypeItemId: null }
+        : {}),
     },
   })
 
