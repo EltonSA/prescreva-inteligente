@@ -76,7 +76,7 @@ export const api = {
     cache.clear()
     return request<T>(endpoint, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: data instanceof FormData ? data : JSON.stringify(data),
     })
   },
   patch: <T>(endpoint: string, data?: any) => {

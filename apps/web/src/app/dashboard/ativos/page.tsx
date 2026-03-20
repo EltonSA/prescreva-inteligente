@@ -144,7 +144,22 @@ function AtivosContent() {
     e.preventDefault()
 
     if (editing) {
-      await api.put(`/ativos/${editing.id}`, form)
+      if (file) {
+        const formData = new FormData()
+        formData.append('name', form.name)
+        formData.append('description', form.description)
+        if (form.usageType) formData.append('usageType', form.usageType)
+        if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
+        if (form.category) formData.append('category', form.category)
+        if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
+        if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
+        if (form.contraindications) formData.append('contraindications', form.contraindications)
+        if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
+        formData.append('file', file)
+        await api.put(`/ativos/${editing.id}`, formData)
+      } else {
+        await api.put(`/ativos/${editing.id}`, form)
+      }
     } else {
       if (file) {
         const formData = new FormData()
@@ -526,25 +541,28 @@ function AtivosContent() {
                   rows={3}
                 />
               </div>
-              {!editing && (
-                <div>
-                  <label className="block text-tag-semibold text-content-title mb-[12px]">
-                    Arquivo PDF (opcional)
-                  </label>
-                  <div className="border-2 border-dashed border-base-border rounded-regular p-[24px] text-center hover:border-primary-dark/40 transition-colors">
-                    <Upload className="w-[24px] h-[24px] text-content-text mx-auto mb-[12px]" strokeWidth={1.5} />
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => setFile(e.target.files?.[0] || null)}
-                      className="text-paragraph text-content-text"
-                    />
-                    {file && (
-                      <p className="text-desc-medium text-primary-dark mt-[12px]">{file.name}</p>
-                    )}
-                  </div>
+              <div>
+                <label className="block text-tag-semibold text-content-title mb-[12px]">
+                  {editing?.fileName ? 'Substituir PDF' : 'Arquivo PDF (opcional)'}
+                </label>
+                {editing?.fileName && !file && (
+                  <p className="text-desc-medium text-content-text mb-[8px]">
+                    Atual: <span className="text-primary-dark">{editing.fileName}</span>
+                  </p>
+                )}
+                <div className="border-2 border-dashed border-base-border rounded-regular p-[24px] text-center hover:border-primary-dark/40 transition-colors">
+                  <Upload className="w-[24px] h-[24px] text-content-text mx-auto mb-[12px]" strokeWidth={1.5} />
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    className="text-paragraph text-content-text"
+                  />
+                  {file && (
+                    <p className="text-desc-medium text-primary-dark mt-[12px]">{file.name}</p>
+                  )}
                 </div>
-              )}
+              </div>
 
               {(file || editing?.filePath) && (
                 <Button

@@ -169,6 +169,46 @@ export async function ativosRoutes(app: FastifyInstance) {
 
   app.put('/ativos/:id', { preHandler: [adminGuard] }, async (request, reply) => {
     const { id } = request.params as { id: string }
+    const contentType = request.headers['content-type'] || ''
+
+    if (contentType.includes('multipart/form-data')) {
+      const data = await request.file()
+      if (!data) return reply.status(400).send({ error: 'Dados inválidos' })
+
+      const fields = data.fields as any
+      const updateData: any = {}
+      if (fields.name?.value) updateData.name = fields.name.value
+      if (fields.description?.value !== undefined) updateData.description = fields.description.value
+      if (fields.usageType?.value !== undefined) updateData.usageType = fields.usageType.value
+      if (fields.compatibleForms?.value !== undefined) updateData.compatibleForms = fields.compatibleForms.value
+      if (fields.category?.value !== undefined) updateData.category = fields.category.value
+      if (fields.concentrationMin?.value !== undefined) updateData.concentrationMin = fields.concentrationMin.value
+      if (fields.concentrationMax?.value !== undefined) updateData.concentrationMax = fields.concentrationMax.value
+      if (fields.contraindications?.value !== undefined) updateData.contraindications = fields.contraindications.value
+      if (fields.technicalNotes?.value !== undefined) updateData.technicalNotes = fields.technicalNotes.value
+
+      if (data.filename) {
+        const uploadsDir = path.resolve('uploads')
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+
+        const fileName = `${Date.now()}-${data.filename}`
+        const filePath = path.join(uploadsDir, fileName)
+        await pipeline(data.file, fs.createWriteStream(filePath))
+        updateData.filePath = filePath
+        updateData.fileName = fileName
+      }
+
+      const ativo = await prisma.ativo.update({ where: { id }, data: updateData })
+
+      if (updateData.filePath) {
+        processAtivoFile(ativo.id).catch((err) =>
+          console.error('Erro ao processar PDF (embeddings):', err.message)
+        )
+      }
+
+      return ativo
+    }
+
     const schema = z.object({
       name: z.string().min(2).optional(),
       description: z.string().optional(),
