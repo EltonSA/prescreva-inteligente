@@ -33,7 +33,7 @@ COPY --from=api-builder /build/api/node_modules ./api/node_modules
 COPY --from=api-builder /build/api/package*.json ./api/
 COPY --from=api-builder /build/api/prisma ./api/prisma
 
-RUN mkdir -p /app/api/uploads
+RUN mkdir -p /app/api/uploads/avatars /app/api/uploads/pdfs
 
 VOLUME ["/app/api/uploads"]
 

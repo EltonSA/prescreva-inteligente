@@ -6,6 +6,7 @@ import fs from 'fs'
 import { prisma } from '../../config/prisma'
 
 const UPLOADS_DIR = path.resolve('uploads')
+const AVATARS_DIR = path.resolve('uploads', 'avatars')
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {
@@ -151,17 +152,20 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Formato inválido. Use JPG, PNG ou WEBP' })
     }
 
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+    if (!fs.existsSync(AVATARS_DIR)) {
+      fs.mkdirSync(AVATARS_DIR, { recursive: true })
     }
 
     const fileName = `avatar-${id}${ext}`
-    const filePath = path.join(UPLOADS_DIR, fileName)
+    const filePath = path.join(AVATARS_DIR, fileName)
 
     const oldUser = await prisma.user.findUnique({ where: { id }, select: { avatar: true } })
     if (oldUser?.avatar) {
-      const oldPath = path.join(UPLOADS_DIR, oldUser.avatar)
+      const oldName = oldUser.avatar.split(/[/\\]/).pop() || oldUser.avatar
+      const oldPath = path.join(AVATARS_DIR, oldName)
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath)
+      const oldPathLegacy = path.join(UPLOADS_DIR, oldName)
+      if (fs.existsSync(oldPathLegacy)) fs.unlinkSync(oldPathLegacy)
     }
 
     const buffer = await data.toBuffer()
@@ -169,27 +173,34 @@ export async function authRoutes(app: FastifyInstance) {
 
     const user = await prisma.user.update({
       where: { id },
-      data: { avatar: fileName },
+      data: { avatar: `avatars/${fileName}` },
       select: { id: true, name: true, email: true, role: true, profession: true, phone: true, avatar: true },
     })
 
     return user
   })
 
-  app.get('/uploads/:filename', async (request, reply) => {
-    const { filename } = request.params as { filename: string }
-    const filePath = path.join(UPLOADS_DIR, filename)
+  app.get('/uploads/*', async (request, reply) => {
+    const subpath = (request.params as any)['*']
+    if (!subpath) return reply.status(400).send({ error: 'Caminho inválido' })
+
+    let filePath = path.join(UPLOADS_DIR, subpath)
+    if (!fs.existsSync(filePath)) {
+      const fileName = subpath.split(/[/\\]/).pop() || subpath
+      filePath = path.join(UPLOADS_DIR, fileName)
+    }
 
     if (!fs.existsSync(filePath)) {
       return reply.status(404).send({ error: 'Arquivo não encontrado' })
     }
 
-    const ext = path.extname(filename).toLowerCase()
+    const ext = path.extname(filePath).toLowerCase()
     const mimeTypes: Record<string, string> = {
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
       '.webp': 'image/webp',
+      '.pdf': 'application/pdf',
     }
 
     reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')

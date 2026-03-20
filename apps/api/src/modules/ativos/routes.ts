@@ -9,10 +9,15 @@ import { processAtivoFile } from '../../services/embedding.service'
 import { analyzePdfContent, analyzePdfBuffer } from '../../services/pdf-analysis.service'
 
 const UPLOADS_DIR = path.resolve('uploads')
+const PDFS_DIR = path.resolve('uploads', 'pdfs')
 
 function resolveUploadPath(filePath: string): string {
   const fileName = filePath.split(/[/\\]/).pop() || filePath
-  return path.join(UPLOADS_DIR, fileName)
+  const newPath = path.join(PDFS_DIR, fileName)
+  if (fs.existsSync(newPath)) return newPath
+  const legacyPath = path.join(UPLOADS_DIR, fileName)
+  if (fs.existsSync(legacyPath)) return legacyPath
+  return newPath
 }
 
 export async function ativosRoutes(app: FastifyInstance) {
@@ -138,11 +143,10 @@ export async function ativosRoutes(app: FastifyInstance) {
     let fileName: string | undefined
 
     if (data.filename) {
-      const uploadsDir = path.resolve('uploads')
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+      if (!fs.existsSync(PDFS_DIR)) fs.mkdirSync(PDFS_DIR, { recursive: true })
 
       fileName = `${Date.now()}-${data.filename}`
-      filePath = path.join(uploadsDir, fileName)
+      filePath = path.join(PDFS_DIR, fileName)
       await pipeline(data.file, fs.createWriteStream(filePath))
     }
 
@@ -188,11 +192,10 @@ export async function ativosRoutes(app: FastifyInstance) {
       if (fields.technicalNotes?.value !== undefined) updateData.technicalNotes = fields.technicalNotes.value
 
       if (data.filename) {
-        const uploadsDir = path.resolve('uploads')
-        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+        if (!fs.existsSync(PDFS_DIR)) fs.mkdirSync(PDFS_DIR, { recursive: true })
 
         const fileName = `${Date.now()}-${data.filename}`
-        const filePath = path.join(uploadsDir, fileName)
+        const filePath = path.join(PDFS_DIR, fileName)
         await pipeline(data.file, fs.createWriteStream(filePath))
         updateData.filePath = filePath
         updateData.fileName = fileName

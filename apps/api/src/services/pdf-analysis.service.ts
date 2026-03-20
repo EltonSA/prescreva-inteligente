@@ -153,7 +153,12 @@ export async function analyzePdfContent(ativoId: string): Promise<AtivoAnalysis 
   if (!ativo || !ativo.filePath) return null
 
   const fileName = ativo.filePath.split(/[/\\]/).pop() || ativo.filePath
-  const resolvedPath = path.join(path.resolve('uploads'), fileName)
+  const PDFS_DIR = path.resolve('uploads', 'pdfs')
+  const UPLOADS_DIR = path.resolve('uploads')
+  let resolvedPath = path.join(PDFS_DIR, fileName)
+  if (!fs.existsSync(resolvedPath)) {
+    resolvedPath = path.join(UPLOADS_DIR, fileName)
+  }
   if (!fs.existsSync(resolvedPath)) return null
 
   const fileBuffer = fs.readFileSync(resolvedPath)

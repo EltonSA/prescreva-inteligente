@@ -8,6 +8,7 @@ const BUBBLE_BASE_URL = process.env.BUBBLE_BASE_URL || ''
 const BUBBLE_DATA_TYPE = process.env.BUBBLE_DATA_TYPE || 'ativo'
 const BUBBLE_API_TOKEN = (process.env.BUBBLE_API_TOKEN || '').trim()
 const UPLOADS_DIR = path.resolve('uploads')
+const PDFS_DIR = path.resolve('uploads', 'pdfs')
 
 function cleanFileName(name: string): string {
   return name
@@ -67,8 +68,8 @@ async function downloadPdf(url: string, outputPath: string): Promise<void> {
 }
 
 async function main() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+  if (!fs.existsSync(PDFS_DIR)) {
+    fs.mkdirSync(PDFS_DIR, { recursive: true })
   }
 
   console.log('=== Sincronizacao Bubble -> Prescreva ===\n')
@@ -95,13 +96,14 @@ async function main() {
     if (existing) {
       if (existing.filePath && pdfUrl) {
         const existingFile = existing.filePath.split(/[/\\]/).pop() || existing.filePath
-        const existingPath = path.join(UPLOADS_DIR, existingFile)
-        if (!fs.existsSync(existingPath)) {
+        const existingPath = path.join(PDFS_DIR, existingFile)
+        const legacyPath = path.join(UPLOADS_DIR, existingFile)
+        if (!fs.existsSync(existingPath) && !fs.existsSync(legacyPath)) {
           console.log(`  -> Existe no banco mas PDF ausente no disco, re-baixando...`)
           try {
             const cleanName = cleanFileName(nome)
             const newFileName = `${Date.now()}-${cleanName}.pdf`
-            const newFilePath = path.join(UPLOADS_DIR, newFileName)
+            const newFilePath = path.join(PDFS_DIR, newFileName)
             await downloadPdf(pdfUrl, newFilePath)
             await prisma.ativo.update({
               where: { id: existing.id },
@@ -130,7 +132,7 @@ async function main() {
       try {
         const cleanName = cleanFileName(nome)
         fileName = `${Date.now()}-${cleanName}.pdf`
-        filePath = path.join(UPLOADS_DIR, fileName)
+        filePath = path.join(PDFS_DIR, fileName)
 
         console.log(`  -> Baixando PDF...`)
         await downloadPdf(pdfUrl, filePath)

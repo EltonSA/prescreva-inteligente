@@ -3,6 +3,9 @@ import fs from 'fs'
 import path from 'path'
 import pdfParse from 'pdf-parse'
 
+const UPLOADS_DIR = path.resolve('uploads')
+const PDFS_DIR = path.resolve('uploads', 'pdfs')
+
 function chunkText(text: string, maxChunkSize = 500): string[] {
   const sentences = text.split(/[.!?]\s+/)
   const chunks: string[] = []
@@ -28,7 +31,10 @@ export async function processAtivoFile(ativoId: string): Promise<void> {
   if (!ativo || !ativo.filePath) return
 
   const fileName = ativo.filePath.split(/[/\\]/).pop() || ativo.filePath
-  const resolvedPath = path.join(path.resolve('uploads'), fileName)
+  let resolvedPath = path.join(PDFS_DIR, fileName)
+  if (!fs.existsSync(resolvedPath)) {
+    resolvedPath = path.join(UPLOADS_DIR, fileName)
+  }
   if (!fs.existsSync(resolvedPath)) return
 
   const fileBuffer = fs.readFileSync(resolvedPath)
