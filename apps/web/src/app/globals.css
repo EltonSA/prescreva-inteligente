@@ -86,3 +86,37 @@ h1, h2, h3, h4, h5, h6 {
 .animate-fade-in {
   animation: fade-in 0.4s ease-out;
 }
+
+/* Login hero: barra de progresso alinhada a INTERVAL_MS (--login-mock-interval) */
+@keyframes login-mock-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.login-mock-bar-fill {
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: login-mock-bar var(--login-mock-interval, 4200ms) linear forwards;
+}
+
+@keyframes login-mock-front-idle {
+  0%,
+  100% {
+    box-shadow:
+      0 24px 56px rgba(0, 0, 0, 0.38),
+      0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 28px 64px rgba(0, 0, 0, 0.42),
+      0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+}
+
+.login-mock-front-glow {
+  animation: login-mock-front-idle 3.5s ease-in-out infinite;
+}
