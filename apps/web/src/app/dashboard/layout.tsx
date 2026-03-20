@@ -7,11 +7,13 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { cn } from '@/lib/utils'
+import { useFeedbackNavBadges } from '@/hooks/use-feedback-nav-badges'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
+  const { mineNewCount, adminNewCount } = useFeedbackNavBadges()
 
   useEffect(() => {
     if (!loading && !user) {
@@ -48,7 +50,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </div>
-      <BottomNav />
+      <BottomNav mineNewCount={mineNewCount} adminNewCount={adminNewCount} />
     </div>
   )
 }

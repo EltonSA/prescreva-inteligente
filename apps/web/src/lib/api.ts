@@ -44,8 +44,12 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Erro desconhecido' }))
-    throw new Error(error.error || 'Erro na requisição')
+    const errBody = await response.json().catch(() => ({} as Record<string, unknown>))
+    const msg =
+      (typeof errBody.error === 'string' && errBody.error) ||
+      (typeof errBody.message === 'string' && errBody.message) ||
+      `Erro na requisição (${response.status})`
+    throw new Error(msg)
   }
 
   return response.json()

@@ -24,6 +24,19 @@ enum AIProvider {
   CLAUDE
 }
 
+enum FeedbackCategory {
+  SUGESTAO
+  BUG
+  OUTRO
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  DISMISSED
+}
+
 model User {
   id         String   @id @default(uuid())
   name       String
@@ -42,6 +55,8 @@ model User {
   formulas         Formula[]
   formulaAiVersions FormulaAiVersion[]
   conversations    Conversation[]
+  feedbackTickets         FeedbackTicket[]
+  feedbackTicketMessages  FeedbackTicketMessage[]
 
   @@map("users")
 }
@@ -215,4 +230,38 @@ model ConversationMessage {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@map("conversation_messages")
+}
+
+model FeedbackTicket {
+  id        String           @id @default(uuid())
+  title     String
+  message   String
+  category  FeedbackCategory @default(SUGESTAO)
+  status    FeedbackStatus   @default(OPEN)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messages FeedbackTicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("feedback_tickets")
+}
+
+model FeedbackTicketMessage {
+  id        String   @id @default(uuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  ticketId String
+  ticket   FeedbackTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("feedback_ticket_messages")
 }

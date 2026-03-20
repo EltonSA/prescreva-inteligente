@@ -13,7 +13,11 @@ import {
   Settings as SettingsIcon,
   LogOut,
   BookOpen,
+  MessageSquareText,
+  Inbox,
 } from 'lucide-react'
+import { SuggestFeedbackDialog } from '@/components/feedback/suggest-feedback-dialog'
+import { FeedbackNavBadgeChip } from '@/components/feedback/feedback-nav-badge-chip'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/proxy'
 
@@ -25,13 +29,17 @@ const navigation = [
   { name: 'Ativos', href: '/dashboard/ativos', icon: FlaskConical, roles: ['ADMIN', 'USER'] },
   { name: 'Prescrever com IA', href: '/dashboard/ia', icon: Sparkles, roles: ['ADMIN', 'USER'] },
   { name: 'Configurações', href: '/dashboard/configuracoes', icon: SettingsIcon, roles: ['ADMIN'] },
+  { name: 'Minhas sugestões', href: '/dashboard/minhas-sugestoes', icon: Inbox, roles: ['ADMIN', 'USER'] },
+  { name: 'Sugestões (todos)', href: '/dashboard/sugestoes', icon: MessageSquareText, roles: ['ADMIN'] },
 ]
 
 interface SidebarProps {
   collapsed?: boolean
+  mineNewCount?: number
+  adminNewCount?: number
 }
 
-export function Sidebar({ collapsed = false }: SidebarProps) {
+export function Sidebar({ collapsed = false, mineNewCount = 0, adminNewCount = 0 }: SidebarProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
 
@@ -102,15 +110,27 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 px-[12px] py-[12px] space-y-1 overflow-y-auto scrollbar-thin">
         {filteredNav.map((item) => {
-          const isActive = item.href === '/dashboard'
-            ? pathname === '/dashboard'
-            : pathname === item.href || pathname.startsWith(item.href + '/')
+          const isActive =
+            item.href === '/dashboard'
+              ? pathname === '/dashboard'
+              : item.href === '/dashboard/minhas-sugestoes'
+                ? pathname === '/dashboard/minhas-sugestoes' || pathname.startsWith('/dashboard/tickets/')
+                : pathname === item.href || pathname.startsWith(item.href + '/')
+          const navBadge =
+            item.href === '/dashboard/minhas-sugestoes'
+              ? mineNewCount
+              : item.href === '/dashboard/sugestoes'
+                ? adminNewCount
+                : 0
+          const badgeLabel =
+            navBadge > 0 ? `${item.name}, ${navBadge} novo${navBadge > 1 ? 's' : ''}` : undefined
           return (
             <Link
               key={item.href}
               href={item.href}
+              aria-label={badgeLabel ?? (collapsed ? item.name : undefined)}
               className={cn(
-                'flex items-center rounded-small text-tag-medium transition-all border border-solid border-base-border',
+                'relative flex items-center rounded-small text-tag-medium transition-all border border-solid border-base-border',
                 collapsed ? 'justify-center px-0 py-[12px]' : 'gap-[12px] px-[12px] py-[12px]',
                 isActive
                   ? 'bg-primary-accent !text-[#FFFFFF] font-semibold !border-primary-accent'
@@ -125,11 +145,33 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 )}
                 strokeWidth={1.5}
               />
-              {!collapsed && <span className="truncate">{item.name}</span>}
+              {!collapsed && (
+                <>
+                  <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                  {navBadge > 0 && (
+                    <FeedbackNavBadgeChip
+                      count={navBadge}
+                      className={isActive ? 'ring-primary-accent' : undefined}
+                    />
+                  )}
+                </>
+              )}
+              {collapsed && navBadge > 0 && (
+                <span className="pointer-events-none absolute right-1 top-2">
+                  <FeedbackNavBadgeChip
+                    count={navBadge}
+                    className={isActive ? 'ring-primary-accent' : undefined}
+                  />
+                </span>
+              )}
             </Link>
           )
         })}
       </nav>
+
+      <div className="px-[12px] pb-2">
+        <SuggestFeedbackDialog collapsed={collapsed} />
+      </div>
 
       {/* Logout bottom */}
       <div className="border-t border-base-border p-[12px]">

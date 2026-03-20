@@ -11,6 +11,7 @@ import { formulasRoutes } from './modules/formulas/routes'
 import { formulaGroupsRoutes } from './modules/formula-groups/routes'
 import { aiRoutes } from './modules/ai/routes'
 import { conversationsRoutes } from './modules/conversations/routes'
+import { feedbackRoutes } from './modules/feedback/routes'
 
 const app = Fastify({
   logger: process.env.NODE_ENV === 'production' ? true : { level: 'warn' },
@@ -38,6 +39,7 @@ async function bootstrap() {
   await app.register(formulaGroupsRoutes)
   await app.register(aiRoutes)
   await app.register(conversationsRoutes)
+  await app.register(feedbackRoutes)
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
