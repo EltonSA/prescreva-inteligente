@@ -224,15 +224,28 @@ model LibraryFormula {
   name         String
   composition  String
   instructions String
+  /// Quantos dias após o cadastro a fórmula aparece em "Novidades" (padrão 7)
+  noveltyDays  Int      @default(7)
   createdBy    String?
   isOfficial   Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  group      FormulaGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group      FormulaGroup         @relation(fields: [groupId], references: [id], onDelete: Cascade)
   aiVersions FormulaAiVersion[]
+  tags       LibraryFormulaTag[]
 
   @@map("library_formulas")
+}
+
+model LibraryFormulaTag {
+  id               String @id @default(uuid())
+  libraryFormulaId String
+  tagName          String
+
+  formula LibraryFormula @relation(fields: [libraryFormulaId], references: [id], onDelete: Cascade)
+
+  @@map("library_formula_tags")
 }
 
 model FormulaAiVersion {

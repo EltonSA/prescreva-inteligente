@@ -4,16 +4,59 @@ import { prisma } from '../../config/prisma'
 import { authGuard, adminGuard } from '../../middleware/auth'
 import { processFormulaModification } from '../../services/formula-ai.service'
 
+/** Fórmulas ainda em período de “novidades” (por grupo), conforme noveltyDays de cada uma */
+async function getNoveltyCountByGroupId(): Promise<Map<string, number>> {
+  const rows = await prisma.$queryRaw<Array<{ groupId: string; count: bigint }>>`
+    SELECT "groupId", COUNT(*)::int as count
+    FROM library_formulas
+    WHERE "noveltyDays" > 0
+      AND "createdAt" + ("noveltyDays" * INTERVAL '1 day') >= NOW()
+    GROUP BY "groupId"
+  `
+  return new Map(rows.map((r) => [r.groupId, Number(r.count)]))
+}
+
+async function countNoveltyFormulasForGroup(groupId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*)::bigint as count
+    FROM library_formulas
+    WHERE "groupId" = ${groupId}
+      AND "noveltyDays" > 0
+      AND "createdAt" + ("noveltyDays" * INTERVAL '1 day') >= NOW()
+  `
+  return Number(rows[0]?.count ?? 0)
+}
+
+async function getFormulaTagsByGroupIds(groupIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, Set<string>>()
+  for (const id of groupIds) map.set(id, new Set())
+  if (groupIds.length === 0) return new Map()
+
+  const rows = await prisma.libraryFormula.findMany({
+    where: { groupId: { in: groupIds } },
+    select: { groupId: true, tags: { select: { tagName: true } } },
+  })
+
+  for (const row of rows) {
+    const set = map.get(row.groupId)
+    if (!set) continue
+    for (const t of row.tags) set.add(t.tagName)
+  }
+
+  return new Map(
+    [...map.entries()].map(([id, set]) => [
+      id,
+      Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    ]),
+  )
+}
+
 export async function formulaGroupsRoutes(app: FastifyInstance) {
   // ── Groups ──────────────────────────────────────────────────────────
 
   app.get('/formula-groups', { preHandler: [authGuard] }, async (request) => {
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
     const groups = await prisma.formulaGroup.findMany({
       include: {
-        tags: true,
         _count: { select: { formulas: true } },
         formulas: {
           select: { createdAt: true },
@@ -23,19 +66,23 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
       },
     })
 
-    const recentCounts = await prisma.libraryFormula.groupBy({
-      by: ['groupId'],
-      where: { createdAt: { gte: sevenDaysAgo } },
-      _count: true,
-    })
-
-    const recentMap = new Map(recentCounts.map((r) => [r.groupId, r._count]))
+    const recentMap = await getNoveltyCountByGroupId()
+    const formulaTagsByGroup = await getFormulaTagsByGroupIds(groups.map((g) => g.id))
 
     const result = groups.map((g) => ({
-      ...g,
+      id: g.id,
+      name: g.name,
+      description: g.description,
+      iconKey: g.iconKey,
+      isDefault: g.isDefault,
+      isSystem: g.isSystem,
+      createdBy: g.createdBy,
+      createdAt: g.createdAt,
+      updatedAt: g.updatedAt,
+      _count: g._count,
+      formulaTags: formulaTagsByGroup.get(g.id) ?? [],
       latestFormulaAt: g.formulas[0]?.createdAt || null,
       recentCount: recentMap.get(g.id) || 0,
-      formulas: undefined,
     }))
 
     result.sort((a, b) => {
@@ -55,7 +102,6 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
       name: z.string().min(2),
       description: z.string().min(2),
       iconKey: z.string().default('beaker'),
-      tags: z.array(z.string()).min(1),
     })
 
     const data = schema.parse(request.body)
@@ -67,14 +113,16 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
         description: data.description,
         iconKey: data.iconKey,
         createdBy: userId,
-        tags: {
-          create: data.tags.map((tag) => ({ tagName: tag })),
-        },
       },
-      include: { tags: true },
     })
 
-    return reply.status(201).send(group)
+    return reply.status(201).send({
+      ...group,
+      formulaTags: [] as string[],
+      _count: { formulas: 0 },
+      latestFormulaAt: null,
+      recentCount: 0,
+    })
   })
 
   app.put('/admin/formula-groups/:id', { preHandler: [adminGuard] }, async (request, reply) => {
@@ -83,26 +131,41 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
       name: z.string().min(2).optional(),
       description: z.string().min(2).optional(),
       iconKey: z.string().optional(),
-      tags: z.array(z.string()).optional(),
     })
 
     const data = schema.parse(request.body)
 
-    if (data.tags) {
-      await prisma.formulaGroupTag.deleteMany({ where: { groupId: id } })
-      await prisma.formulaGroupTag.createMany({
-        data: data.tags.map((tag) => ({ groupId: id, tagName: tag })),
-      })
-    }
-
-    const { tags, ...groupData } = data
     const group = await prisma.formulaGroup.update({
       where: { id },
-      data: groupData,
-      include: { tags: true },
+      data,
+      include: {
+        _count: { select: { formulas: true } },
+        formulas: {
+          select: { createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     })
 
-    return group
+    const recentNew = await countNoveltyFormulasForGroup(id)
+    const formulaTagsMap = await getFormulaTagsByGroupIds([id])
+
+    return {
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      iconKey: group.iconKey,
+      isDefault: group.isDefault,
+      isSystem: group.isSystem,
+      createdBy: group.createdBy,
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
+      _count: group._count,
+      formulaTags: formulaTagsMap.get(id) ?? [],
+      latestFormulaAt: group.formulas[0]?.createdAt || null,
+      recentCount: recentNew,
+    }
   })
 
   app.delete('/admin/formula-groups/:id', { preHandler: [adminGuard] }, async (request, reply) => {
@@ -137,23 +200,56 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
 
   // ── Library Formulas ────────────────────────────────────────────────
 
+  /** Fórmulas em período de novidade (mesma regra de recentCount por grupo), ordenadas pela data de cadastro */
+  app.get('/library-formulas/novelties', { preHandler: [authGuard] }, async () => {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM library_formulas
+      WHERE "noveltyDays" > 0
+        AND "createdAt" + ("noveltyDays" * INTERVAL '1 day') >= NOW()
+      ORDER BY "createdAt" DESC
+    `
+    const ids = rows.map((r) => r.id)
+    if (ids.length === 0) return []
+
+    const formulas = await prisma.libraryFormula.findMany({
+      where: { id: { in: ids } },
+      include: {
+        tags: true,
+        group: { select: { id: true, name: true, iconKey: true } },
+      },
+    })
+    const order = new Map(ids.map((id, i) => [id, i]))
+    return formulas.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  })
+
   app.get('/formula-groups/:id/formulas', { preHandler: [authGuard] }, async (request) => {
     const { id } = request.params as { id: string }
-    const { search } = request.query as { search?: string }
+    const { search, tag } = request.query as { search?: string; tag?: string }
 
     const where: any = { groupId: id }
 
+    if (tag?.trim()) {
+      where.tags = { some: { tagName: tag.trim() } }
+    }
+
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { composition: { contains: search, mode: 'insensitive' } },
-        { instructions: { contains: search, mode: 'insensitive' } },
+      where.AND = [
+        ...(where.AND ?? []),
+        {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { composition: { contains: search, mode: 'insensitive' } },
+            { instructions: { contains: search, mode: 'insensitive' } },
+          ],
+        },
       ]
     }
 
     return prisma.libraryFormula.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: { tags: true },
     })
   })
 
@@ -161,7 +257,7 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string }
     const formula = await prisma.libraryFormula.findUnique({
       where: { id },
-      include: { group: true },
+      include: { group: true, tags: true },
     })
     if (!formula) return reply.status(404).send({ error: 'Fórmula não encontrada' })
     return formula
@@ -173,13 +269,24 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
       name: z.string().min(2),
       composition: z.string().min(5),
       instructions: z.string().min(5),
+      tags: z.array(z.string()).optional(),
+      noveltyDays: z.coerce.number().int().min(1).max(365).optional().default(7),
     })
 
     const data = schema.parse(request.body)
     const userId = (request.user as { id: string }).id
+    const { tags, ...rest } = data
 
     const formula = await prisma.libraryFormula.create({
-      data: { ...data, createdBy: userId, isOfficial: true },
+      data: {
+        ...rest,
+        createdBy: userId,
+        isOfficial: true,
+        tags: tags?.length
+          ? { create: tags.map((tagName) => ({ tagName })) }
+          : undefined,
+      },
+      include: { tags: true },
     })
 
     return reply.status(201).send(formula)
@@ -192,12 +299,26 @@ export async function formulaGroupsRoutes(app: FastifyInstance) {
       composition: z.string().min(5).optional(),
       instructions: z.string().min(5).optional(),
       groupId: z.string().uuid().optional(),
+      tags: z.array(z.string()).optional(),
+      noveltyDays: z.coerce.number().int().min(1).max(365).optional(),
     })
 
     const data = schema.parse(request.body)
+    const { tags, ...rest } = data
+
+    if (tags) {
+      await prisma.libraryFormulaTag.deleteMany({ where: { libraryFormulaId: id } })
+      if (tags.length > 0) {
+        await prisma.libraryFormulaTag.createMany({
+          data: tags.map((tagName) => ({ libraryFormulaId: id, tagName })),
+        })
+      }
+    }
+
     const formula = await prisma.libraryFormula.update({
       where: { id },
-      data,
+      data: rest,
+      include: { tags: true },
     })
 
     return formula

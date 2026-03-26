@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useAuth } from '@/contexts/auth-context'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import {
   Drawer,
   DrawerContent,
@@ -35,15 +37,12 @@ import {
   X,
   Bell,
   FlaskConical,
+  Trash2,
+  LayoutGrid,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 // ── Types ────────────────────────────────────────────────────────────
-
-interface FormulaGroupTag {
-  id: string
-  tagName: string
-}
 
 interface FormulaGroup {
   id: string
@@ -52,10 +51,16 @@ interface FormulaGroup {
   iconKey: string
   isDefault: boolean
   isSystem: boolean
-  tags: FormulaGroupTag[]
+  /** Tags distintas das fórmulas deste grupo (somente leitura na listagem) */
+  formulaTags: string[]
   _count: { formulas: number }
   latestFormulaAt: string | null
   recentCount: number
+}
+
+interface LibraryFormulaTag {
+  id: string
+  tagName: string
 }
 
 interface LibraryFormula {
@@ -64,8 +69,14 @@ interface LibraryFormula {
   name: string
   composition: string
   instructions: string
+  noveltyDays: number
   isOfficial: boolean
   createdAt: string
+  tags?: LibraryFormulaTag[]
+}
+
+interface LibraryFormulaWithGroup extends LibraryFormula {
+  group: { id: string; name: string; iconKey: string }
 }
 
 interface FormulaAiVersion {
@@ -120,14 +131,210 @@ const PREDEFINED_TAGS = [
   'Fortalecimento', 'Queda', 'Caspa', 'Oleosidade', 'Crescimento',
 ]
 
+const DEFAULT_NOVELTY_DAYS = 7
+
+// ── Group card (Biblioteca / Novidades) ─────────────────────────────
+
+function FormulaGroupCard({
+  group,
+  isAdmin,
+  onOpen,
+  onEdit,
+  highlightNews,
+  showBellInHeader,
+}: {
+  group: FormulaGroup
+  isAdmin: boolean
+  onOpen: () => void
+  onEdit: (e: React.MouseEvent) => void
+  highlightNews?: boolean
+  /** Na Biblioteca: sino + total de novidades ao lado das ações do card */
+  showBellInHeader?: boolean
+}) {
+  const IconComp = getIconComponent(group.iconKey)
+  const hasNews = group.recentCount > 0
+  return (
+    <Card
+      className={cn(
+        'group relative cursor-pointer overflow-hidden border-base-border transition-all hover:border-primary-medium hover:shadow-md',
+        highlightNews && 'ring-1 ring-primary-accent/35'
+      )}
+      onClick={onOpen}
+    >
+      {highlightNews && (
+        <div
+          className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-primary-accent via-primary-medium to-primary-dark"
+          aria-hidden
+        />
+      )}
+      <CardContent className="flex h-full flex-col p-6 pt-7">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-small bg-primary-light text-primary-dark transition-colors group-hover:bg-primary-medium/40">
+              <IconComp className="h-6 w-6" strokeWidth={1.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-h3 text-content-title">{group.name}</h3>
+              {hasNews && !showBellInHeader && (
+                <span className="mt-1 inline-flex items-center gap-1 rounded-huge bg-primary-accent/10 px-2 py-0.5 text-desc-medium font-medium text-primary-accent">
+                  <Bell className="h-3 w-3" strokeWidth={2} aria-hidden />
+                  {group.recentCount} nova{group.recentCount !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {showBellInHeader && hasNews && (
+              <span
+                className="inline-flex items-center gap-1 rounded-huge bg-primary-accent/12 px-2.5 py-1.5 text-desc-medium font-semibold text-primary-accent"
+                title={`${group.recentCount} fórmula${group.recentCount !== 1 ? 's' : ''} em novidades neste grupo`}
+              >
+                <Bell className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                {group.recentCount}
+              </span>
+            )}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEdit(e)
+                }}
+                className="rounded-tiny p-1.5 text-content-text transition-colors hover:bg-base-disable"
+                title="Editar grupo"
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+            )}
+            <ChevronRight
+              className="h-5 w-5 text-content-text/70 transition-transform group-hover:translate-x-0.5"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+          </div>
+        </div>
+        <p className="mb-4 line-clamp-2 flex-1 text-paragraph text-content-text">{group.description}</p>
+        {(group.formulaTags?.length ?? 0) > 0 && (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {group.formulaTags.slice(0, 4).map((tag) => (
+              <Badge key={tag} variant="default">
+                {tag}
+              </Badge>
+            ))}
+            {group.formulaTags.length > 4 && (
+              <Badge variant="secondary">+{group.formulaTags.length - 4}</Badge>
+            )}
+          </div>
+        )}
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-base-border/70 pt-4">
+          <div className="flex items-center gap-1.5 text-desc-medium text-content-text">
+            <FlaskConical className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+            <span>
+              {group._count.formulas} fórmula{group._count.formulas !== 1 ? 's' : ''}
+            </span>
+          </div>
+          {group.latestFormulaAt && (
+            <span className="text-desc-regular text-content-text/70">
+              Atualizado {new Date(group.latestFormulaAt).toLocaleDateString('pt-BR')}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function NoveltyFormulaCard({
+  formula,
+  onOpenAi,
+  onTagClick,
+}: {
+  formula: LibraryFormulaWithGroup
+  onOpenAi: () => void
+  onTagClick?: (tagName: string) => void
+}) {
+  const GroupIcon = getIconComponent(formula.group.iconKey)
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      className="group relative cursor-pointer overflow-hidden border-base-border transition-all hover:border-primary-medium hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-dark/30"
+      onClick={onOpenAi}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenAi()
+        }
+      }}
+    >
+      <div className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-primary-accent via-primary-medium to-primary-dark" aria-hidden />
+      <CardContent className="relative flex flex-col p-6 pt-7">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-small bg-primary-light text-primary-dark transition-colors group-hover:bg-primary-medium/40">
+              <GroupIcon className="h-5 w-5" strokeWidth={1.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-desc-medium text-content-text">{formula.group.name}</p>
+              <h3 className="mt-0.5 text-h3 text-content-title">{formula.name}</h3>
+              <span className="mt-2 inline-flex items-center gap-1 rounded-huge bg-primary-accent/10 px-2 py-0.5 text-desc-medium font-medium text-primary-accent">
+                <Bell className="h-3 w-3" strokeWidth={2} aria-hidden />
+                Em destaque
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Sparkles className="h-5 w-5 shrink-0 text-primary-dark" strokeWidth={1.5} aria-hidden />
+            <span className="text-center text-[10px] font-semibold leading-tight text-primary-dark sm:text-desc-medium">
+              Modificar com IA
+            </span>
+          </div>
+        </div>
+        {(formula.tags?.length ?? 0) > 0 && (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {(formula.tags ?? []).slice(0, 5).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTagClick?.(t.tagName)
+                }}
+                className="inline-flex items-center rounded-huge bg-primary-light px-2.5 py-1 text-desc-medium text-primary-dark transition-colors hover:bg-primary-medium/50"
+              >
+                {t.tagName}
+              </button>
+            ))}
+            {(formula.tags ?? []).length > 5 && (
+              <Badge variant="secondary">+{(formula.tags ?? []).length - 5}</Badge>
+            )}
+          </div>
+        )}
+        <div className="border-t border-base-border/70 pt-4">
+          <span className="text-desc-medium text-content-text uppercase tracking-wider">Composição</span>
+          <p className="mt-1 line-clamp-3 whitespace-pre-line text-paragraph text-content-title">{formula.composition}</p>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-desc-regular text-content-text/80">
+          <span>Cadastro {new Date(formula.createdAt).toLocaleDateString('pt-BR')}</span>
+          <span className="text-desc-medium text-content-text/70">Destaque por {formula.noveltyDays} dia{formula.noveltyDays !== 1 ? 's' : ''}</span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 
 export default function FormulasPage() {
-  const { isAdmin, user } = useAuth()
+  const { isAdmin } = useAuth()
 
   const [groups, setGroups] = useState<FormulaGroup[]>([])
+  const [noveltyFormulas, setNoveltyFormulas] = useState<LibraryFormulaWithGroup[]>([])
+  const [noveltyLoading, setNoveltyLoading] = useState(true)
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [highlightedFormulaId, setHighlightedFormulaId] = useState<string | null>(null)
+  const [noveltyTagFilter, setNoveltyTagFilter] = useState<string | null>(null)
 
   // Drawer states
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false)
@@ -137,6 +344,7 @@ export default function FormulasPage() {
   const [selectedGroup, setSelectedGroup] = useState<FormulaGroup | null>(null)
   const [groupFormulas, setGroupFormulas] = useState<LibraryFormula[]>([])
   const [formulaSearch, setFormulaSearch] = useState('')
+  const [formulaTagFilter, setFormulaTagFilter] = useState<string | null>(null)
 
   const [formulaDrawerOpen, setFormulaDrawerOpen] = useState(false)
   const [editingFormula, setEditingFormula] = useState<LibraryFormula | null>(null)
@@ -146,8 +354,6 @@ export default function FormulasPage() {
   const [aiRequest, setAiRequest] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResult, setAiResult] = useState<FormulaAiVersion | null>(null)
-
-  const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false)
 
   const [favAiDrawerOpen, setFavAiDrawerOpen] = useState(false)
   const [favAiBase, setFavAiBase] = useState<FavoriteItem | null>(null)
@@ -160,48 +366,79 @@ export default function FormulasPage() {
     name: '',
     description: '',
     iconKey: 'beaker',
-    tags: [] as string[],
   })
-  const [newTagInput, setNewTagInput] = useState('')
 
   // Formula form
   const [formulaForm, setFormulaForm] = useState({
     name: '',
     composition: '',
     instructions: '',
+    noveltyDays: DEFAULT_NOVELTY_DAYS,
+    tags: [] as string[],
   })
+  const [formulaTagInput, setFormulaTagInput] = useState('')
+
+  const [mainTab, setMainTab] = useState<'novelty' | 'library' | 'favorites'>('library')
+
+  const newsTotal = useMemo(() => groups.reduce((a, g) => a + g.recentCount, 0), [groups])
+  const noveltyCount = noveltyLoading ? newsTotal : noveltyFormulas.length
 
   // ── Load Data ────────────────────────────────────────────────────
 
-  useEffect(() => {
-    loadGroups()
-    loadFavorites()
-  }, [])
-
-  async function loadGroups() {
-    setLoading(true)
-    try {
-      const data = await api.get<FormulaGroup[]>('/formula-groups')
-      setGroups(data)
-    } catch (err) {
-      console.error('Erro ao carregar grupos:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function loadFavorites() {
+  const loadFavorites = useCallback(async () => {
     try {
       const data = await api.get<FavoriteItem[]>('/me/favorite-formulas')
       setFavorites(data)
     } catch (err) {
       console.error('Erro ao carregar favoritos:', err)
     }
+  }, [])
+
+  const loadNovelties = useCallback(async () => {
+    setNoveltyLoading(true)
+    try {
+      const data = await api.get<LibraryFormulaWithGroup[]>('/library-formulas/novelties')
+      setNoveltyFormulas(data)
+    } catch (err) {
+      console.error('Erro ao carregar novidades:', err)
+      setNoveltyFormulas([])
+    } finally {
+      setNoveltyLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadGroups()
+    void loadFavorites()
+    void loadNovelties()
+    // Intentional: carregar na montagem
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (mainTab === 'favorites') void loadFavorites()
+  }, [mainTab, loadFavorites])
+
+  async function loadGroups(): Promise<FormulaGroup[] | undefined> {
+    setLoading(true)
+    try {
+      const data = await api.get<FormulaGroup[]>('/formula-groups')
+      setGroups(data)
+      return data
+    } catch (err) {
+      console.error('Erro ao carregar grupos:', err)
+      return undefined
+    } finally {
+      setLoading(false)
+    }
   }
 
-  async function loadGroupFormulas(groupId: string, search?: string) {
+  async function loadGroupFormulas(groupId: string, search?: string, tag?: string | null) {
     try {
-      const query = search ? `?search=${encodeURIComponent(search)}` : ''
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      if (tag) params.set('tag', tag)
+      const query = params.toString() ? `?${params}` : ''
       const data = await api.get<LibraryFormula[]>(`/formula-groups/${groupId}/formulas${query}`)
       setGroupFormulas(data)
     } catch (err) {
@@ -209,11 +446,32 @@ export default function FormulasPage() {
     }
   }
 
+  const filterTagsInDetail = useMemo(() => {
+    if (!selectedGroup) return []
+    const fromGroup = selectedGroup.formulaTags ?? []
+    const fromFormulas = groupFormulas.flatMap((f) => (f.tags ?? []).map((t) => t.tagName))
+    const unique = new Set([...fromGroup, ...fromFormulas])
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [selectedGroup, groupFormulas])
+
+  const noveltyTagsFilterList = useMemo(() => {
+    const unique = new Set<string>()
+    for (const f of noveltyFormulas) {
+      for (const t of f.tags ?? []) unique.add(t.tagName)
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [noveltyFormulas])
+
+  const filteredNoveltyFormulas = useMemo(() => {
+    if (!noveltyTagFilter) return noveltyFormulas
+    return noveltyFormulas.filter((f) => (f.tags ?? []).some((t) => t.tagName === noveltyTagFilter))
+  }, [noveltyFormulas, noveltyTagFilter])
+
   // ── Group Actions ────────────────────────────────────────────────
 
   function openCreateGroup() {
     setEditingGroup(null)
-    setGroupForm({ name: '', description: '', iconKey: 'beaker', tags: [] })
+    setGroupForm({ name: '', description: '', iconKey: 'beaker' })
     setGroupDrawerOpen(true)
   }
 
@@ -223,7 +481,6 @@ export default function FormulasPage() {
       name: group.name,
       description: group.description,
       iconKey: group.iconKey,
-      tags: group.tags.map((t) => t.tagName),
     })
     setGroupDrawerOpen(true)
   }
@@ -237,43 +494,51 @@ export default function FormulasPage() {
         await api.post('/admin/formula-groups', groupForm)
       }
       setGroupDrawerOpen(false)
-      loadGroups()
+      const refreshed = await loadGroups()
+      if (refreshed && editingGroup && selectedGroup?.id === editingGroup.id) {
+        const g = refreshed.find((x) => x.id === editingGroup.id)
+        if (g) setSelectedGroup(g)
+      }
     } catch (err: any) {
       alert(err.message || 'Erro ao salvar grupo')
     }
   }
 
-  function toggleTag(tag: string) {
-    setGroupForm((prev) => ({
-      ...prev,
-      tags: prev.tags.includes(tag)
-        ? prev.tags.filter((t) => t !== tag)
-        : [...prev.tags, tag],
-    }))
-  }
-
-  function addCustomTag() {
-    const trimmed = newTagInput.trim()
-    if (trimmed && !groupForm.tags.includes(trimmed)) {
-      setGroupForm((prev) => ({ ...prev, tags: [...prev.tags, trimmed] }))
-      setNewTagInput('')
-    }
-  }
-
   // ── Group Detail ─────────────────────────────────────────────────
 
-  function openGroupDetail(group: FormulaGroup) {
+  function openGroupDetail(group: FormulaGroup, opts?: { focusFormulaId?: string }) {
     setSelectedGroup(group)
     setFormulaSearch('')
+    setFormulaTagFilter(null)
+    setHighlightedFormulaId(opts?.focusFormulaId ?? null)
     setGroupFormulas([])
     setDetailDrawerOpen(true)
     loadGroupFormulas(group.id)
   }
 
+  useEffect(() => {
+    if (!detailDrawerOpen || !highlightedFormulaId || groupFormulas.length === 0) return
+    if (!groupFormulas.some((f) => f.id === highlightedFormulaId)) return
+    const t = window.setTimeout(() => {
+      document.getElementById(`library-formula-${highlightedFormulaId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }, 120)
+    return () => window.clearTimeout(t)
+  }, [detailDrawerOpen, highlightedFormulaId, groupFormulas])
+
   function handleFormulaSearch(value: string) {
     setFormulaSearch(value)
     if (selectedGroup) {
-      loadGroupFormulas(selectedGroup.id, value)
+      loadGroupFormulas(selectedGroup.id, value, formulaTagFilter)
+    }
+  }
+
+  function applyFormulaTagFilter(tag: string | null) {
+    setFormulaTagFilter(tag)
+    if (selectedGroup) {
+      loadGroupFormulas(selectedGroup.id, formulaSearch, tag)
     }
   }
 
@@ -281,7 +546,14 @@ export default function FormulasPage() {
 
   function openCreateFormula() {
     setEditingFormula(null)
-    setFormulaForm({ name: '', composition: '', instructions: '' })
+    setFormulaForm({
+      name: '',
+      composition: '',
+      instructions: '',
+      noveltyDays: DEFAULT_NOVELTY_DAYS,
+      tags: [],
+    })
+    setFormulaTagInput('')
     setFormulaDrawerOpen(true)
   }
 
@@ -291,25 +563,95 @@ export default function FormulasPage() {
       name: formula.name,
       composition: formula.composition,
       instructions: formula.instructions,
+      noveltyDays: formula.noveltyDays ?? DEFAULT_NOVELTY_DAYS,
+      tags: (formula.tags ?? []).map((t) => t.tagName),
     })
+    setFormulaTagInput('')
     setFormulaDrawerOpen(true)
+  }
+
+  function toggleFormulaTag(tag: string) {
+    setFormulaForm((prev) => ({
+      ...prev,
+      tags: prev.tags.includes(tag)
+        ? prev.tags.filter((t) => t !== tag)
+        : [...prev.tags, tag],
+    }))
+  }
+
+  function addFormulaCustomTag() {
+    const trimmed = formulaTagInput.trim()
+    if (trimmed && !formulaForm.tags.includes(trimmed)) {
+      setFormulaForm((prev) => ({ ...prev, tags: [...prev.tags, trimmed] }))
+      setFormulaTagInput('')
+    }
+  }
+
+  async function handleDeleteFormula(formula: LibraryFormula) {
+    if (!selectedGroup) return
+    if (
+      !confirm(
+        `Excluir a fórmula "${formula.name}"? Esta ação não pode ser desfeita.`,
+      )
+    ) {
+      return
+    }
+    try {
+      await api.delete(`/admin/library-formulas/${formula.id}`)
+      if (editingFormula?.id === formula.id) {
+        setFormulaDrawerOpen(false)
+        setEditingFormula(null)
+      }
+      if (aiBaseFormula?.id === formula.id) {
+        setAiDrawerOpen(false)
+        setAiBaseFormula(null)
+      }
+      loadGroupFormulas(selectedGroup.id, formulaSearch, formulaTagFilter)
+      const refreshed = await loadGroups()
+      if (refreshed) {
+        const g = refreshed.find((x) => x.id === selectedGroup.id)
+        if (g) setSelectedGroup(g)
+      }
+      await loadNovelties()
+    } catch (err: any) {
+      alert(err.message || 'Erro ao excluir fórmula')
+    }
   }
 
   async function handleFormulaSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedGroup) return
     try {
+      const noveltyDays = Math.min(
+        365,
+        Math.max(1, Math.round(Number(formulaForm.noveltyDays)) || DEFAULT_NOVELTY_DAYS),
+      )
       if (editingFormula) {
-        await api.put(`/admin/library-formulas/${editingFormula.id}`, formulaForm)
+        await api.put(`/admin/library-formulas/${editingFormula.id}`, {
+          name: formulaForm.name,
+          composition: formulaForm.composition,
+          instructions: formulaForm.instructions,
+          tags: formulaForm.tags,
+          noveltyDays,
+        })
       } else {
         await api.post('/admin/library-formulas', {
-          ...formulaForm,
+          name: formulaForm.name,
+          composition: formulaForm.composition,
+          instructions: formulaForm.instructions,
+          tags: formulaForm.tags,
+          noveltyDays,
           groupId: selectedGroup.id,
         })
       }
       setFormulaDrawerOpen(false)
-      loadGroupFormulas(selectedGroup.id, formulaSearch)
-      loadGroups()
+      loadGroupFormulas(selectedGroup.id, formulaSearch, formulaTagFilter)
+      const refreshed = await loadGroups()
+      if (refreshed) {
+        const g = refreshed.find((x) => x.id === selectedGroup.id)
+        if (g) setSelectedGroup(g)
+      }
+      await loadNovelties()
     } catch (err: any) {
       alert(err.message || 'Erro ao salvar fórmula')
     }
@@ -317,7 +659,7 @@ export default function FormulasPage() {
 
   // ── AI Modification ──────────────────────────────────────────────
 
-  function openAiModify(formula: LibraryFormula) {
+  function openAiModify(formula: LibraryFormula | LibraryFormulaWithGroup) {
     setAiBaseFormula(formula)
     setAiRequest('')
     setAiResult(null)
@@ -354,11 +696,6 @@ export default function FormulasPage() {
   }
 
   // ── Favorites ────────────────────────────────────────────────────
-
-  function openFavorites() {
-    loadFavorites()
-    setFavoritesDrawerOpen(true)
-  }
 
   async function handleUnfavorite(item: FavoriteItem) {
     try {
@@ -418,213 +755,279 @@ export default function FormulasPage() {
 
   // ── Render ───────────────────────────────────────────────────────
 
-  const hasFavorites = favorites.length > 0
-
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 lg:mb-[24px]">
-        <div>
-          <h1 className="text-h2 lg:text-h1 text-content-title">Fórmulas</h1>
-          <p className="text-paragraph text-content-text mt-1 lg:mt-[12px]">
+      <div className="mb-6 flex flex-col gap-4 lg:mb-8 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-2xl">
+          <h1 className="text-h2 text-content-title lg:text-h1">Fórmulas</h1>
+          <p className="mt-2 text-paragraph text-content-text lg:mt-3">
             {isAdmin
-              ? 'Gerencie grupos e fórmulas da biblioteca magistral'
-              : 'Consulte as fórmulas disponíveis na biblioteca'}
+              ? 'Organize a biblioteca magistral: novidades recentes, grupos e o que você salvou com a IA — tudo em um só lugar.'
+              : 'Explore novidades, consulte os grupos da biblioteca e acesse suas fórmulas favoritas.'}
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={openCreateGroup} className="self-start sm:self-auto">
-            <Plus className="w-[18px] h-[18px]" strokeWidth={1.5} />
-            Cadastrar Grupo
+          <Button onClick={openCreateGroup} className="shrink-0 self-start sm:self-auto">
+            <Plus className="h-[18px] w-[18px]" strokeWidth={1.5} />
+            Cadastrar grupo
           </Button>
         )}
       </div>
 
-      {/* Groups Grid */}
       {loading ? (
-        <div className="flex items-center justify-center py-[48px]">
-          <Loader2 className="w-6 h-6 animate-spin text-primary-dark" />
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-dark" />
         </div>
       ) : (
-        <>
-          {/* Cards com novidades primeiro */}
-          {groups.some((g) => g.recentCount > 0) && (
-            <div className="mb-[32px]">
-              <div className="flex items-center gap-[8px] mb-[16px]">
-                <Bell className="w-[18px] h-[18px] text-primary-dark" strokeWidth={1.5} />
-                <h2 className="text-h3 text-content-title">Novidades na biblioteca</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px]">
-                {groups.filter((g) => g.recentCount > 0).map((group) => {
-                  const IconComp = getIconComponent(group.iconKey)
-                  return (
-                    <Card
-                      key={group.id}
-                      className="hover:shadow-md transition-shadow cursor-pointer border-primary-accent/40 relative overflow-hidden"
-                      onClick={() => openGroupDetail(group)}
-                    >
-                      <div className="absolute top-0 left-0 right-0 h-[3px] bg-primary-accent" />
-                      <CardContent className="p-[24px]">
-                        <div className="flex items-start justify-between mb-[16px]">
-                          <div className="w-12 h-12 rounded-small bg-primary-light flex items-center justify-center">
-                            <IconComp className="w-[24px] h-[24px] text-primary-dark" strokeWidth={1.5} />
-                          </div>
-                          <div className="flex items-center gap-[6px]">
-                            <span className="inline-flex items-center gap-[4px] rounded-huge bg-primary-accent px-[10px] py-[3px] text-desc-medium text-[#FFFFFF] font-semibold">
-                              <Bell className="w-[11px] h-[11px]" strokeWidth={2} />
-                              {group.recentCount} nova{group.recentCount !== 1 ? 's' : ''}
-                            </span>
-                            {isAdmin && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openEditGroup(group) }}
-                                className="p-[6px] rounded-tiny text-content-text hover:bg-base-disable transition-colors"
-                                title="Editar grupo"
-                              >
-                                <Pencil className="w-[14px] h-[14px]" strokeWidth={1.5} />
-                              </button>
-                            )}
-                            <ChevronRight className="w-[18px] h-[18px] text-content-text" strokeWidth={1.5} />
-                          </div>
-                        </div>
-                        <h3 className="text-h3 text-content-title mb-[8px]">{group.name}</h3>
-                        <p className="text-paragraph text-content-text mb-[16px] line-clamp-2">
-                          {group.description}
-                        </p>
-                        <div className="flex flex-wrap gap-[6px] mb-[12px]">
-                          {group.tags.slice(0, 4).map((tag) => (
-                            <Badge key={tag.id} variant="default">{tag.tagName}</Badge>
-                          ))}
-                          {group.tags.length > 4 && (
-                            <Badge variant="secondary">+{group.tags.length - 4}</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-[6px]">
-                            <FlaskConical className="w-[13px] h-[13px] text-content-text" strokeWidth={1.5} />
-                            <span className="text-desc-medium text-content-text">
-                              {group._count.formulas} fórmula{group._count.formulas !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          {group.latestFormulaAt && (
-                            <span className="text-desc-regular text-content-text">
-                              Última: {new Date(group.latestFormulaAt).toLocaleDateString('pt-BR')}
-                            </span>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+        <Tabs
+          value={mainTab}
+          onValueChange={(v) => setMainTab(v as 'novelty' | 'library' | 'favorites')}
+          className="w-full"
+        >
+          <TabsList className="grid h-auto min-h-[52px] w-full grid-cols-3 gap-1 p-1.5">
+            <TabsTrigger value="novelty" className="gap-1.5 px-1.5 sm:gap-2 sm:px-3">
+              <Bell className="h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden />
+              <span className="hidden sm:inline">Novidades</span>
+              <span className="sm:hidden">Nov.</span>
+              {noveltyCount > 0 && (
+                <span className="rounded-full bg-primary-accent px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {noveltyCount > 99 ? '99+' : noveltyCount}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="library" className="gap-1.5 px-1.5 sm:gap-2 sm:px-3">
+              <LayoutGrid className="h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden />
+              <span className="hidden sm:inline">Biblioteca</span>
+              <span className="sm:hidden">Bibl.</span>
+            </TabsTrigger>
+            <TabsTrigger value="favorites" className="gap-1.5 px-1.5 sm:gap-2 sm:px-3">
+              <Star className="h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden />
+              <span className="hidden sm:inline">Favoritos</span>
+              <span className="sm:hidden">Fav.</span>
+              {favorites.length > 0 && (
+                <span className="rounded-full bg-primary-dark px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {favorites.length > 99 ? '99+' : favorites.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-          {/* Todos os grupos + favoritos */}
-          <div className="mb-[16px]">
-            <h2 className="text-h3 text-content-title">
-              {groups.some((g) => g.recentCount > 0) ? 'Todos os grupos' : 'Grupos de fórmulas'}
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px]">
-            {/* Virtual Favorites Group */}
-            {hasFavorites && (
-              <Card
-                className="hover:shadow-md transition-shadow cursor-pointer border-[#E65100]/20"
-                onClick={openFavorites}
-              >
-                <CardContent className="p-[24px] flex flex-col h-full">
-                  <div className="flex items-start justify-between mb-[16px]">
-                    <div className="w-12 h-12 rounded-small bg-[#FFF3E0] flex items-center justify-center">
-                      <Star className="w-[24px] h-[24px] text-[#E65100]" strokeWidth={1.5} />
+          <TabsContent value="novelty" className="mt-6">
+            <p className="mb-6 max-w-2xl text-paragraph text-content-text">
+              Fórmulas em destaque no período de novidades. Toque no card para abrir direto o assistente de{' '}
+              <span className="font-semibold text-content-title">Modificar com IA</span> — o mesmo fluxo para
+              administradores e usuários.
+            </p>
+            {noveltyLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-8 w-8 animate-spin text-primary-dark" />
+              </div>
+            ) : noveltyFormulas.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-regular border border-dashed border-base-border bg-base-background px-6 py-16 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-light text-primary-dark">
+                  <Bell className="h-7 w-7 opacity-70" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-tag-semibold text-content-title">Nenhuma novidade no momento</p>
+                <p className="mt-2 max-w-md text-paragraph text-content-text">
+                  Quando novas fórmulas forem cadastradas, elas aparecerão aqui conforme o período de destaque definido
+                  no cadastro.
+                </p>
+                <Button type="button" variant="outline" className="mt-6" onClick={() => setMainTab('library')}>
+                  Ir para a biblioteca
+                </Button>
+              </div>
+            ) : (
+              <>
+                {noveltyTagsFilterList.length > 0 && (
+                  <div className="mb-6 space-y-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-tag-semibold text-content-title">Características</span>
+                      {noveltyTagFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setNoveltyTagFilter(null)}
+                          className="text-desc-medium text-primary-dark underline underline-offset-2 hover:opacity-90"
+                        >
+                          Limpar filtro
+                        </button>
+                      )}
                     </div>
-                    <ChevronRight className="w-[18px] h-[18px] text-content-text mt-[4px]" strokeWidth={1.5} />
+                    <div className="flex flex-wrap gap-1.5">
+                      {noveltyTagsFilterList.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setNoveltyTagFilter(noveltyTagFilter === tag ? null : tag)}
+                          className={cn(
+                            'inline-flex items-center rounded-huge px-3 py-1 text-desc-medium transition-colors',
+                            noveltyTagFilter === tag
+                              ? 'bg-primary-dark text-[#FFFFFF]'
+                              : 'bg-base-disable text-content-text hover:bg-primary-light'
+                          )}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <h3 className="text-h3 text-content-title mb-[8px]">Fórmulas Favoritadas</h3>
-                  <p className="text-paragraph text-content-text mb-[16px] line-clamp-2 flex-1">
-                    Suas fórmulas personalizadas geradas e favoritadas com auxílio da IA
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <Badge variant="warning">
-                      <Star className="w-[11px] h-[11px] mr-[4px] fill-current" strokeWidth={1.5} />
-                      {favorites.length} fórmula{favorites.length !== 1 ? 's' : ''}
+                )}
+                {filteredNoveltyFormulas.length === 0 ? (
+                  <div className="rounded-regular border border-base-border bg-base-background px-6 py-12 text-center">
+                    <p className="text-paragraph text-content-text">
+                      Nenhuma fórmula em novidades com esta característica.
+                    </p>
+                    <Button type="button" variant="outline" className="mt-4" onClick={() => setNoveltyTagFilter(null)}>
+                      Limpar filtro
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                    {filteredNoveltyFormulas.map((formula) => (
+                      <NoveltyFormulaCard
+                        key={formula.id}
+                        formula={formula}
+                        onOpenAi={() => openAiModify(formula)}
+                        onTagClick={(tag) => setNoveltyTagFilter((prev) => (prev === tag ? null : tag))}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="library" className="mt-6">
+            <p className="mb-6 max-w-2xl text-paragraph text-content-text">
+              Todos os grupos da biblioteca magistral. Toque em um card para buscar fórmulas, filtrar por tags ou usar a
+              IA para adaptar uma receita.
+            </p>
+            {groups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-regular border border-dashed border-base-border bg-base-background px-6 py-16 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-light text-primary-dark">
+                  <FlaskConical className="h-7 w-7 opacity-70" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-tag-semibold text-content-title">Nenhum grupo cadastrado</p>
+                <p className="mt-2 max-w-md text-paragraph text-content-text">
+                  {isAdmin
+                    ? 'Comece criando um grupo para organizar as fórmulas da biblioteca.'
+                    : 'A biblioteca ainda não possui grupos de fórmulas.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {groups.map((group) => (
+                  <FormulaGroupCard
+                    key={group.id}
+                    group={group}
+                    isAdmin={!!isAdmin}
+                    highlightNews={group.recentCount > 0}
+                    showBellInHeader
+                    onOpen={() => openGroupDetail(group)}
+                    onEdit={(e) => {
+                      e.stopPropagation()
+                      openEditGroup(group)
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="favorites" className="mt-6">
+            <p className="mb-6 max-w-2xl text-paragraph text-content-text">
+              Fórmulas que você gerou com a IA (a partir da biblioteca ou do chat) e marcou como favoritas. Remova a
+              estrela para tirar da lista.
+            </p>
+            <div className="space-y-4">
+              {favorites.map((fav) => (
+                <div
+                  key={fav.id}
+                  className="rounded-regular border border-base-border bg-base-white p-5 transition-colors hover:border-primary-medium"
+                >
+                  <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h4 className="text-tag-bold text-content-title">{fav.title}</h4>
+                      {fav.source === 'library' && fav.baseFormula && (
+                        <p className="mt-1 text-desc-regular text-content-text">
+                          Baseada em: {fav.baseFormula.name}
+                          {fav.baseFormula.group && ` · ${fav.baseFormula.group.name}`}
+                        </p>
+                      )}
+                      {fav.source === 'chat' && fav.patientName && (
+                        <p className="mt-1 text-desc-regular text-content-text">Paciente: {fav.patientName}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openFavAiModify(fav)}
+                        className="rounded-tiny p-2 text-primary-dark transition-colors hover:bg-primary-light"
+                        title="Modificar com IA"
+                      >
+                        <Sparkles className="h-4 w-4" strokeWidth={1.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUnfavorite(fav)}
+                        className="rounded-tiny p-2 text-primary-accent transition-colors hover:bg-primary-light"
+                        title="Remover dos favoritos"
+                      >
+                        <Star className="h-4 w-4 fill-current" strokeWidth={1.5} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {fav.source === 'library' ? (
+                    <>
+                      <div className="text-desc-medium text-content-text mb-1 uppercase tracking-wider">Solicitação</div>
+                      <p className="text-paragraph text-content-text mb-4 italic">&quot;{fav.userRequest}&quot;</p>
+                      <div className="mb-3">
+                        <span className="text-desc-medium text-content-text uppercase tracking-wider">Composição</span>
+                        <div className="prose prose-sm mt-1 max-w-none text-paragraph text-content-title">
+                          <ReactMarkdown>{fav.aiResultFormula}</ReactMarkdown>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-desc-medium text-content-text uppercase tracking-wider">Modo de uso</span>
+                        <div className="prose prose-sm mt-1 max-w-none text-paragraph text-content-text">
+                          <ReactMarkdown>{fav.aiResultInstructions}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="prose prose-sm max-w-none prose-headings:text-content-title prose-p:text-content-text prose-strong:text-primary-dark prose-li:text-content-text">
+                      <ReactMarkdown>{fav.content}</ReactMarkdown>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-base-border/60 pt-4">
+                    <span className="text-desc-regular text-content-text">
+                      Criada em {new Date(fav.createdAt).toLocaleDateString('pt-BR')}
+                    </span>
+                    <Badge variant={fav.source === 'chat' ? 'default' : 'secondary'}>
+                      {fav.source === 'chat' ? 'Chat IA' : 'Biblioteca'}
                     </Badge>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Formula Groups */}
-            {groups.map((group) => {
-              const IconComp = getIconComponent(group.iconKey)
-              const hasNews = group.recentCount > 0
-              return (
-                <Card
-                  key={group.id}
-                  className="hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => openGroupDetail(group)}
-                >
-                  <CardContent className="p-[24px] flex flex-col h-full">
-                    <div className="flex items-start justify-between mb-[16px]">
-                      <div className="w-12 h-12 rounded-small bg-primary-light flex items-center justify-center">
-                        <IconComp className="w-[24px] h-[24px] text-primary-dark" strokeWidth={1.5} />
-                      </div>
-                      <div className="flex items-center gap-[4px]">
-                        {hasNews && (
-                          <span className="inline-flex items-center gap-[4px] rounded-huge bg-primary-accent/10 px-[8px] py-[2px] text-desc-medium text-primary-accent font-medium">
-                            <Bell className="w-[10px] h-[10px]" strokeWidth={2} />
-                            {group.recentCount}
-                          </span>
-                        )}
-                        {isAdmin && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openEditGroup(group) }}
-                            className="p-[6px] rounded-tiny text-content-text hover:bg-base-disable transition-colors"
-                            title="Editar grupo"
-                          >
-                            <Pencil className="w-[14px] h-[14px]" strokeWidth={1.5} />
-                          </button>
-                        )}
-                        <ChevronRight className="w-[18px] h-[18px] text-content-text" strokeWidth={1.5} />
-                      </div>
-                    </div>
-                    <h3 className="text-h3 text-content-title mb-[8px]">{group.name}</h3>
-                    <p className="text-paragraph text-content-text mb-[16px] line-clamp-2 flex-1">
-                      {group.description}
-                    </p>
-                    <div className="flex flex-wrap gap-[6px] mb-[12px]">
-                      {group.tags.slice(0, 4).map((tag) => (
-                        <Badge key={tag.id} variant="default">{tag.tagName}</Badge>
-                      ))}
-                      {group.tags.length > 4 && (
-                        <Badge variant="secondary">+{group.tags.length - 4}</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-auto pt-[8px]">
-                      <div className="flex items-center gap-[6px]">
-                        <FlaskConical className="w-[13px] h-[13px] text-content-text" strokeWidth={1.5} />
-                        <span className="text-desc-medium text-content-text">
-                          {group._count.formulas} fórmula{group._count.formulas !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      {group.latestFormulaAt && (
-                        <span className="text-desc-regular text-content-text">
-                          {new Date(group.latestFormulaAt).toLocaleDateString('pt-BR')}
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-
-            {groups.length === 0 && !loading && (
-              <div className="col-span-full py-[48px] text-center text-content-text">
-                Nenhum grupo de fórmulas encontrado
-              </div>
-            )}
-          </div>
-        </>
+                </div>
+              ))}
+              {favorites.length === 0 && (
+                <div className="flex flex-col items-center justify-center rounded-regular border border-dashed border-base-border bg-base-background px-6 py-16 text-center">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-light text-primary-accent">
+                    <Star className="h-7 w-7" strokeWidth={1.5} aria-hidden />
+                  </div>
+                  <p className="text-tag-semibold text-content-title">Nenhum favorito ainda</p>
+                  <p className="mt-2 max-w-md text-paragraph text-content-text">
+                    Ao gerar uma fórmula com a IA, use &quot;Favoritar&quot; para guardá-la aqui e encontrar rápido depois.
+                  </p>
+                  <Button type="button" variant="outline" className="mt-6" onClick={() => setMainTab('library')}>
+                    Explorar biblioteca
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* ── Drawer: Create/Edit Group ──────────────────────────────── */}
@@ -675,63 +1078,12 @@ export default function FormulasPage() {
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="block text-tag-semibold text-content-title mb-[12px]">
-                  Características / Tags
-                </label>
-                <div className="flex flex-wrap gap-[6px] mb-[12px]">
-                  {PREDEFINED_TAGS.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTag(tag)}
-                      className={`inline-flex items-center rounded-huge px-[12px] py-1 text-desc-medium transition-colors ${
-                        groupForm.tags.includes(tag)
-                          ? 'bg-primary-dark text-[#FFFFFF]'
-                          : 'bg-base-disable text-content-text hover:bg-primary-light'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-                {groupForm.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).length > 0 && (
-                  <div className="flex flex-wrap gap-[6px] mb-[12px]">
-                    {groupForm.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 rounded-huge px-[12px] py-1 text-desc-medium bg-primary-dark text-[#FFFFFF]"
-                      >
-                        {tag}
-                        <button type="button" onClick={() => toggleTag(tag)} className="ml-1 hover:opacity-70">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="flex gap-[8px]">
-                  <Input
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    placeholder="Nova característica..."
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomTag() } }}
-                    className="flex-1"
-                  />
-                  <Button type="button" variant="outline" onClick={addCustomTag}>
-                    <Plus className="w-[14px] h-[14px]" strokeWidth={1.5} />
-                  </Button>
-                </div>
-                {groupForm.tags.length === 0 && (
-                  <p className="text-desc-regular text-error mt-[8px]">Selecione pelo menos 1 característica</p>
-                )}
-              </div>
             </DrawerBody>
             <DrawerFooter>
               <Button type="button" variant="outline" onClick={() => setGroupDrawerOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={groupForm.tags.length === 0}>
+              <Button type="submit">
                 {editingGroup ? 'Salvar' : 'Criar Grupo'}
               </Button>
             </DrawerFooter>
@@ -740,7 +1092,13 @@ export default function FormulasPage() {
       </Drawer>
 
       {/* ── Drawer: Group Detail ───────────────────────────────────── */}
-      <Drawer open={detailDrawerOpen} onOpenChange={setDetailDrawerOpen}>
+      <Drawer
+        open={detailDrawerOpen}
+        onOpenChange={(open) => {
+          setDetailDrawerOpen(open)
+          if (!open) setHighlightedFormulaId(null)
+        }}
+      >
         <DrawerContent size="wide">
           <DrawerHeader>
             <div className="flex items-center gap-[12px]">
@@ -778,11 +1136,48 @@ export default function FormulasPage() {
               )}
             </div>
 
+            {filterTagsInDetail.length > 0 && (
+              <div className="space-y-[8px]">
+                <div className="flex flex-wrap items-center gap-[12px]">
+                  <span className="text-tag-semibold text-content-title">Características</span>
+                  {formulaTagFilter && (
+                    <button
+                      type="button"
+                      onClick={() => applyFormulaTagFilter(null)}
+                      className="text-desc-medium text-primary-dark underline underline-offset-2 hover:opacity-90"
+                    >
+                      Limpar filtro
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-[6px]">
+                  {filterTagsInDetail.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => applyFormulaTagFilter(formulaTagFilter === tag ? null : tag)}
+                      className={`inline-flex items-center rounded-huge px-[12px] py-1 text-desc-medium transition-colors ${
+                        formulaTagFilter === tag
+                          ? 'bg-primary-dark text-[#FFFFFF]'
+                          : 'bg-base-disable text-content-text hover:bg-primary-light'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-[12px]">
               {groupFormulas.map((formula) => (
                 <div
                   key={formula.id}
-                  className="border border-base-border rounded-small p-[20px] hover:border-primary-medium transition-colors"
+                  id={`library-formula-${formula.id}`}
+                  className={cn(
+                    'rounded-small border border-base-border p-[20px] transition-colors hover:border-primary-medium',
+                    highlightedFormulaId === formula.id && 'ring-2 ring-primary-accent ring-offset-2'
+                  )}
                 >
                   <div className="flex items-start justify-between mb-[12px]">
                     <h4 className="text-tag-bold text-content-title">{formula.name}</h4>
@@ -791,12 +1186,38 @@ export default function FormulasPage() {
                         <Sparkles className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
                       </Button>
                       {isAdmin && (
-                        <Button variant="ghost" size="sm" onClick={() => openEditFormula(formula)} title="Editar">
-                          <Pencil className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
-                        </Button>
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => openEditFormula(formula)} title="Editar">
+                            <Pencil className="w-[14px] h-[14px] text-primary-dark" strokeWidth={1.5} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteFormula(formula)}
+                            title="Excluir fórmula"
+                            className="text-error hover:text-error hover:bg-error/10"
+                          >
+                            <Trash2 className="w-[14px] h-[14px]" strokeWidth={1.5} />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
+                  {(formula.tags?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-[6px] mb-[12px]">
+                      {(formula.tags ?? []).map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => applyFormulaTagFilter(tag.tagName)}
+                          className="inline-flex items-center rounded-huge px-[10px] py-[4px] text-desc-medium bg-base-disable text-content-text hover:bg-primary-light transition-colors"
+                          title={`Filtrar por ${tag.tagName}`}
+                        >
+                          {tag.tagName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="mb-[8px]">
                     <span className="text-desc-medium text-content-text uppercase tracking-wider">Composição</span>
                     <p className="text-paragraph text-content-title mt-[4px] whitespace-pre-line line-clamp-3">
@@ -813,8 +1234,8 @@ export default function FormulasPage() {
               ))}
               {groupFormulas.length === 0 && (
                 <div className="py-[32px] text-center text-content-text">
-                  {formulaSearch
-                    ? 'Nenhuma fórmula encontrada para esta busca'
+                  {formulaSearch || formulaTagFilter
+                    ? 'Nenhuma fórmula encontrada para esta busca ou filtro'
                     : 'Nenhuma fórmula cadastrada neste grupo'}
                 </div>
               )}
@@ -866,12 +1287,114 @@ export default function FormulasPage() {
                   required
                 />
               </div>
+              <div>
+                <label className="block text-tag-semibold text-content-title mb-[12px]">
+                  Tempo em &quot;Novidades&quot;
+                </label>
+                <p className="text-desc-regular text-content-text mb-[8px]">
+                  Quantos dias após o cadastro esta fórmula aparece na seção Novidades da biblioteca (padrão {DEFAULT_NOVELTY_DAYS} dias).
+                </p>
+                <div className="flex flex-wrap items-center gap-[12px]">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={formulaForm.noveltyDays}
+                    onChange={(e) => {
+                      const v = e.target.value === '' ? DEFAULT_NOVELTY_DAYS : Number(e.target.value)
+                      setFormulaForm({
+                        ...formulaForm,
+                        noveltyDays: Number.isFinite(v) ? v : DEFAULT_NOVELTY_DAYS,
+                      })
+                    }}
+                    className="max-w-[120px]"
+                    required
+                  />
+                  <span className="text-desc-regular text-content-text">dias (1 a 365)</span>
+                </div>
+              </div>
+              <div>
+                  <label className="block text-tag-semibold text-content-title mb-[12px]">
+                    Características
+                  </label>
+                  <p className="text-desc-regular text-content-text mb-[12px]">
+                    Essas tags aparecem no card do grupo e permitem filtrar as fórmulas dentro dele.
+                  </p>
+                  <div className="flex flex-wrap gap-[6px] mb-[12px]">
+                    {PREDEFINED_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleFormulaTag(tag)}
+                        className={`inline-flex items-center rounded-huge px-[12px] py-1 text-desc-medium transition-colors ${
+                          formulaForm.tags.includes(tag)
+                            ? 'bg-primary-dark text-[#FFFFFF]'
+                            : 'bg-base-disable text-content-text hover:bg-primary-light'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                  {formulaForm.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).length > 0 && (
+                    <div className="flex flex-wrap gap-[6px] mb-[12px]">
+                      {formulaForm.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 rounded-huge px-[12px] py-1 text-desc-medium bg-primary-dark text-[#FFFFFF]"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => toggleFormulaTag(tag)}
+                            className="ml-1 hover:opacity-70"
+                            aria-label={`Remover ${tag}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-[8px]">
+                    <Input
+                      value={formulaTagInput}
+                      onChange={(e) => setFormulaTagInput(e.target.value)}
+                      placeholder="Nova característica..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addFormulaCustomTag()
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <Button type="button" variant="outline" onClick={addFormulaCustomTag}>
+                      <Plus className="w-[14px] h-[14px]" strokeWidth={1.5} />
+                    </Button>
+                  </div>
+              </div>
             </DrawerBody>
-            <DrawerFooter>
-              <Button type="button" variant="outline" onClick={() => setFormulaDrawerOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit">{editingFormula ? 'Salvar' : 'Criar Fórmula'}</Button>
+            <DrawerFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+              {editingFormula && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="sm:mr-auto"
+                  onClick={() => handleDeleteFormula(editingFormula)}
+                >
+                  <Trash2 className="w-[16px] h-[16px]" strokeWidth={1.5} />
+                  Excluir fórmula
+                </Button>
+              )}
+              <div className="flex gap-3 w-full sm:w-auto sm:ml-auto sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setFormulaDrawerOpen(false)} className="flex-1 sm:flex-initial">
+                  Cancelar
+                </Button>
+                <Button type="submit" className="flex-1 sm:flex-initial">
+                  {editingFormula ? 'Salvar' : 'Criar Fórmula'}
+                </Button>
+              </div>
             </DrawerFooter>
           </form>
         </DrawerContent>
@@ -995,106 +1518,6 @@ export default function FormulasPage() {
                   </div>
                 )}
               </>
-            )}
-          </DrawerBody>
-        </DrawerContent>
-      </Drawer>
-
-      {/* ── Drawer: Favorites ──────────────────────────────────────── */}
-      <Drawer open={favoritesDrawerOpen} onOpenChange={setFavoritesDrawerOpen}>
-        <DrawerContent size="wide">
-          <DrawerHeader>
-            <div className="flex items-center gap-[12px]">
-              <div className="w-10 h-10 rounded-small bg-[#FFF3E0] flex items-center justify-center">
-                <Star className="w-[20px] h-[20px] text-[#E65100]" strokeWidth={1.5} />
-              </div>
-              <div>
-                <DrawerTitle>Fórmulas Favoritadas</DrawerTitle>
-                <p className="text-desc-regular text-content-text mt-[2px]">
-                  Suas fórmulas personalizadas geradas com IA
-                </p>
-              </div>
-            </div>
-            <DrawerCloseButton />
-          </DrawerHeader>
-          <DrawerBody className="space-y-[12px]">
-            {favorites.map((fav) => (
-              <div
-                key={fav.id}
-                className="border border-base-border rounded-small p-[20px] hover:border-primary-medium transition-colors"
-              >
-                <div className="flex items-start justify-between mb-[12px]">
-                  <div>
-                    <h4 className="text-tag-bold text-content-title">{fav.title}</h4>
-                    {fav.source === 'library' && fav.baseFormula && (
-                      <p className="text-desc-regular text-content-text mt-[2px]">
-                        Baseada em: {fav.baseFormula.name}
-                        {fav.baseFormula.group && ` · ${fav.baseFormula.group.name}`}
-                      </p>
-                    )}
-                    {fav.source === 'chat' && fav.patientName && (
-                      <p className="text-desc-regular text-content-text mt-[2px]">
-                        Paciente: {fav.patientName}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-[4px] shrink-0">
-                    <button
-                      onClick={() => openFavAiModify(fav)}
-                      className="p-[6px] rounded-tiny text-primary-dark hover:bg-primary-light transition-colors"
-                      title="Modificar com IA"
-                    >
-                      <Sparkles className="w-[16px] h-[16px]" strokeWidth={1.5} />
-                    </button>
-                    <button
-                      onClick={() => handleUnfavorite(fav)}
-                      className="p-[6px] rounded-tiny text-[#E65100] hover:bg-[#FFF3E0] transition-colors"
-                      title="Remover dos favoritos"
-                    >
-                      <Star className="w-[16px] h-[16px] fill-current" strokeWidth={1.5} />
-                    </button>
-                  </div>
-                </div>
-
-                {fav.source === 'library' ? (
-                  <>
-                    <div className="text-desc-medium text-content-text mb-[4px] uppercase tracking-wider">
-                      Solicitação
-                    </div>
-                    <p className="text-paragraph text-content-text mb-[12px] italic">"{fav.userRequest}"</p>
-                    <div className="mb-[8px]">
-                      <span className="text-desc-medium text-content-text uppercase tracking-wider">Composição</span>
-                      <div className="text-paragraph text-content-title mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
-                        <ReactMarkdown>{fav.aiResultFormula}</ReactMarkdown>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-desc-medium text-content-text uppercase tracking-wider">Modo de uso</span>
-                      <div className="text-paragraph text-content-text mt-[4px] whitespace-pre-line prose prose-sm max-w-none">
-                        <ReactMarkdown>{fav.aiResultInstructions}</ReactMarkdown>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="prose prose-sm max-w-none prose-headings:text-content-title prose-p:text-content-text prose-strong:text-primary-dark prose-li:text-content-text">
-                    <ReactMarkdown>{fav.content}</ReactMarkdown>
-                  </div>
-                )}
-
-                <div className="mt-[12px] pt-[12px] border-t border-base-border/50 flex items-center justify-between">
-                  <span className="text-desc-regular text-content-text">
-                    Criada em {new Date(fav.createdAt).toLocaleDateString('pt-BR')}
-                  </span>
-                  <Badge variant={fav.source === 'chat' ? 'default' : 'secondary'}>
-                    {fav.source === 'chat' ? 'Chat IA' : 'Biblioteca'}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-            {favorites.length === 0 && (
-              <div className="py-[32px] text-center text-content-text">
-                Você ainda não favoritou nenhuma fórmula
-              </div>
             )}
           </DrawerBody>
         </DrawerContent>
