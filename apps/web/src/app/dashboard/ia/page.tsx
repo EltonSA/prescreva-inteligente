@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import ReactMarkdown from 'react-markdown'
+import toast from 'react-hot-toast'
 
 interface Patient {
   id: string
@@ -346,7 +347,7 @@ function IAContent() {
       )
       setShowHistory(false)
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Não foi possível abrir a conversa')
     }
   }
 
@@ -359,8 +360,9 @@ function IAContent() {
         setActiveConversationId(null)
         setMessages([])
       }
+      toast.success('Conversa excluída.')
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Erro ao excluir conversa')
     }
   }
 
@@ -415,9 +417,14 @@ function IAContent() {
         content: userMessage.content,
       })
 
+      const MAX_MESSAGES_TO_SEND = 40
+      const messagesToSend = newMessages.length > MAX_MESSAGES_TO_SEND
+        ? [newMessages[0], ...newMessages.slice(-MAX_MESSAGES_TO_SEND + 1)]
+        : newMessages
+
       const result = await api.post<{ response: string; referencedAtivos: ReferencedAtivo[] }>('/ai/chat', {
         patientId: selectedPatient,
-        messages: newMessages,
+        messages: messagesToSend,
       })
 
       await api.post(`/conversations/${convId}/messages`, {
@@ -442,9 +449,13 @@ function IAContent() {
 
       loadConversations(selectedPatient)
     } catch (err: any) {
+      const isTokenError = err.message?.includes('context length') || err.message?.includes('token')
+      const errorContent = isTokenError
+        ? 'A conversa ficou muito longa. Por favor, inicie uma nova conversa clicando em "Nova conversa" acima.'
+        : `Erro: ${err.message}`
       setMessages([
         ...newMessages,
-        { role: 'assistant', content: `Erro: ${err.message}` },
+        { role: 'assistant', content: errorContent },
       ])
     } finally {
       setLoading(false)
@@ -470,8 +481,9 @@ function IAContent() {
       setMessages(prev => prev.map((m, i) =>
         i === index ? { ...m, saved: true, savedType: favorite ? 'favorite' : 'saved' } : m
       ))
+      toast.success(favorite ? 'Fórmula salva nos favoritos.' : 'Fórmula salva no prontuário.')
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Erro ao salvar fórmula')
     } finally {
       setSaving(false)
     }

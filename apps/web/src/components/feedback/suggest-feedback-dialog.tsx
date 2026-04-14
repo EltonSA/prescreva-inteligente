@@ -149,10 +149,10 @@ export function SuggestFeedbackDialog({
               collapsed ? 'justify-center px-0 py-[12px] w-full' : 'gap-[12px] px-[12px] py-[12px] w-full',
               'text-content-text hover:bg-primary-light'
             )}
-            title="Sugerir melhoria"
+            title="Contato"
           >
             <MessageSquarePlus className="w-[18px] h-[18px] flex-shrink-0 text-primary-dark" strokeWidth={1.5} />
-            {!collapsed && <span className="truncate text-left">Sugerir melhoria</span>}
+            {!collapsed && <span className="truncate text-left">Contato</span>}
           </button>
         )}
       </DialogTrigger>
@@ -176,7 +176,7 @@ export function SuggestFeedbackDialog({
                 className="mb-3 mt-5 h-1 w-11 rounded-full bg-gradient-to-r from-primary-accent to-primary-medium"
                 aria-hidden
               />
-              <DialogTitle className="text-h2 tracking-tight text-content-title">Sugerir melhoria</DialogTitle>
+              <DialogTitle className="text-h2 tracking-tight text-content-title">Contato</DialogTitle>
               <DialogDescription className="mt-3 max-w-[420px] text-paragraph leading-relaxed text-content-text">
                 Abre um ticket para a equipe. Você acompanha e responde em{' '}
                 <strong className="font-semibold text-content-title">Minhas sugestões</strong>, no mesmo fio.
@@ -349,8 +349,8 @@ export function SuggestFeedbackHeaderButton() {
       <button
         type="button"
         className="lg:hidden w-9 h-9 rounded-small flex items-center justify-center border border-base-border hover:bg-primary-light transition-colors"
-        title="Sugerir melhoria"
-        aria-label="Sugerir melhoria"
+        title="Contato"
+        aria-label="Contato"
       >
         <MessageSquarePlus className="w-[20px] h-[20px] text-primary-dark" strokeWidth={1.5} />
       </button>

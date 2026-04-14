@@ -41,6 +41,7 @@ import {
   LayoutGrid,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import toast from 'react-hot-toast'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -499,8 +500,9 @@ export default function FormulasPage() {
         const g = refreshed.find((x) => x.id === editingGroup.id)
         if (g) setSelectedGroup(g)
       }
+      toast.success(editingGroup ? 'Grupo atualizado.' : 'Grupo cadastrado.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao salvar grupo')
+      toast.error(err.message || 'Erro ao salvar grupo')
     }
   }
 
@@ -613,8 +615,9 @@ export default function FormulasPage() {
         if (g) setSelectedGroup(g)
       }
       await loadNovelties()
+      toast.success('Fórmula excluída.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao excluir fórmula')
+      toast.error(err.message || 'Erro ao excluir fórmula')
     }
   }
 
@@ -652,8 +655,9 @@ export default function FormulasPage() {
         if (g) setSelectedGroup(g)
       }
       await loadNovelties()
+      toast.success(editingFormula ? 'Fórmula atualizada.' : 'Fórmula cadastrada.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao salvar fórmula')
+      toast.error(err.message || 'Erro ao salvar fórmula')
     }
   }
 
@@ -677,8 +681,9 @@ export default function FormulasPage() {
         userRequest: aiRequest,
       })
       setAiResult(result)
+      toast.success('Nova versão gerada pela IA.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao modificar com IA')
+      toast.error(err.message || 'Erro ao modificar com IA')
     } finally {
       setAiLoading(false)
     }
@@ -690,8 +695,9 @@ export default function FormulasPage() {
       await api.patch(`/ai/formulas/${aiResult.id}/favorite`)
       setAiResult({ ...aiResult, isFavorited: true })
       loadFavorites()
+      toast.success('Salvo nos favoritos.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao favoritar')
+      toast.error(err.message || 'Erro ao favoritar')
     }
   }
 
@@ -705,8 +711,9 @@ export default function FormulasPage() {
         await api.patch(`/ai/formulas/${item.id}/favorite`)
       }
       setFavorites((prev) => prev.filter((f) => f.id !== item.id))
+      toast.success('Removido dos favoritos.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao remover favorito')
+      toast.error(err.message || 'Erro ao remover favorito')
     }
   }
 
@@ -731,8 +738,9 @@ export default function FormulasPage() {
         userRequest: favAiRequest,
       })
       setFavAiResult(result)
+      toast.success('Nova versão gerada pela IA.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao modificar com IA')
+      toast.error(err.message || 'Erro ao modificar com IA')
     } finally {
       setFavAiLoading(false)
     }
@@ -748,8 +756,9 @@ export default function FormulasPage() {
       })
       setFavAiDrawerOpen(false)
       loadFavorites()
+      toast.success('Alterações salvas.')
     } catch (err: any) {
-      alert(err.message || 'Erro ao salvar')
+      toast.error(err.message || 'Erro ao salvar')
     }
   }
 
@@ -798,8 +807,8 @@ export default function FormulasPage() {
             </TabsTrigger>
             <TabsTrigger value="library" className="gap-1.5 px-1.5 sm:gap-2 sm:px-3">
               <LayoutGrid className="h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden />
-              <span className="hidden sm:inline">Biblioteca</span>
-              <span className="sm:hidden">Bibl.</span>
+              <span className="hidden sm:inline">Sugestões</span>
+              <span className="sm:hidden">Sug.</span>
             </TabsTrigger>
             <TabsTrigger value="favorites" className="gap-1.5 px-1.5 sm:gap-2 sm:px-3">
               <Star className="h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden />

@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Key, Brain, Cpu, Save, Check, PieChart } from 'lucide-react'
 import { DualUsdBrlInline } from '@/components/metrics/dual-usd-brl'
+import toast from 'react-hot-toast'
 
 interface AiSettings {
   id: string
@@ -115,12 +116,13 @@ export default function ConfiguracoesPage() {
         payload.apiKey = form.apiKey
       }
       await api.put('/ai/settings', payload)
+      toast.success('Configurações da IA salvas.')
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
       loadSettings()
       loadUsage()
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Erro ao salvar')
     } finally {
       setLoading(false)
     }

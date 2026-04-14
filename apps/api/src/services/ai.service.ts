@@ -3,6 +3,12 @@ import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { recordAiUsage } from './ai-usage.service'
+import {
+  estimateTokens,
+  getModelLimit,
+  trimMessagesToFitBudget,
+  trimRagContext,
+} from './token-manager'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -289,15 +295,45 @@ export async function processChat(context: ChatContext): Promise<ChatResult> {
 
   if (!user || !patient) throw new Error('Usuário ou paciente não encontrado')
 
-  const { context: ragContext, ativos } = await searchRelevantContext(
+  const model = settings.model || 'gpt-4o-mini'
+  const modelLimit = getModelLimit(model)
+  const reservedForResponse = 4000
+  const totalBudget = modelLimit - reservedForResponse
+
+  const baseSystemPrompt = buildSystemPrompt(
+    settings.systemPrompt,
+    user.profession || '',
+    patient,
+    '' // RAG context added separately for budget control
+  )
+  const basePromptTokens = estimateTokens(baseSystemPrompt)
+
+  const ragBudget = Math.min(
+    Math.floor(totalBudget * 0.55),
+    totalBudget - basePromptTokens - 4000,
+  )
+
+  const { context: rawRagContext, ativos } = await searchRelevantContext(
     context.messages[context.messages.length - 1].content
   )
+  const trimmedRag = trimRagContext(rawRagContext, Math.max(ragBudget, 2000))
 
   const systemPrompt = buildSystemPrompt(
     settings.systemPrompt,
     user.profession || '',
     patient,
-    ragContext
+    trimmedRag
+  )
+  const systemTokens = estimateTokens(systemPrompt)
+
+  const messageBudget = totalBudget - systemTokens
+  const trimmedMessages = trimMessagesToFitBudget(context.messages, Math.max(messageBudget, 1000)) as ChatMessage[]
+
+  const totalEstimate = systemTokens + trimmedMessages.reduce((acc, m) => acc + estimateTokens(m.content), 0)
+  console.log(
+    `[token-manager] model=${model} limit=${modelLimit} system=${systemTokens} ` +
+    `messages=${trimmedMessages.length}/${context.messages.length} ` +
+    `estimated_total=${totalEstimate}`
   )
 
   let responseText: string
@@ -306,15 +342,15 @@ export async function processChat(context: ChatContext): Promise<ChatResult> {
     case 'OPENAI': {
       const { text, promptTokens, completionTokens } = await chatWithOpenAI(
         systemPrompt,
-        context.messages,
+        trimmedMessages,
         settings.apiKey,
-        settings.model
+        model
       )
       responseText = text
       recordAiUsage({
         provider: 'OPENAI',
         source: 'CHAT',
-        model: settings.model || 'gpt-4o-mini',
+        model,
         promptTokens,
         completionTokens,
         userId: context.userId,
@@ -322,10 +358,10 @@ export async function processChat(context: ChatContext): Promise<ChatResult> {
       break
     }
     case 'CLAUDE':
-      responseText = await chatWithClaude(systemPrompt, context.messages, settings.apiKey, settings.model)
+      responseText = await chatWithClaude(systemPrompt, trimmedMessages, settings.apiKey, model)
       break
     case 'GEMINI':
-      responseText = await chatWithGemini(systemPrompt, context.messages, settings.apiKey, settings.model)
+      responseText = await chatWithGemini(systemPrompt, trimmedMessages, settings.apiKey, model)
       break
     default:
       throw new Error(`Provedor ${settings.provider} não suportado`)

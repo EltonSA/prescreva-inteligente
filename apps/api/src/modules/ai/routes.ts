@@ -30,7 +30,13 @@ export async function aiRoutes(app: FastifyInstance) {
       const result = await processChat({ patientId, userId, messages })
       return result
     } catch (error: any) {
-      return reply.status(500).send({ error: error.message })
+      const msg: string = error.message || ''
+      if (msg.includes('context length') || msg.includes('maximum context')) {
+        return reply.status(400).send({
+          error: 'A conversa excedeu o limite de contexto do modelo. Inicie uma nova conversa.',
+        })
+      }
+      return reply.status(500).send({ error: msg })
     }
   })
 

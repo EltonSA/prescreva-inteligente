@@ -93,13 +93,19 @@ export default function UsuariosPage() {
     const payload = { ...form }
     if (!payload.password) delete (payload as any).password
 
-    if (editing) {
-      await api.put(`/users/${editing.id}`, payload)
-    } else {
-      await api.post('/users', payload)
+    try {
+      if (editing) {
+        await api.put(`/users/${editing.id}`, payload)
+        toast.success('Usuário atualizado.')
+      } else {
+        await api.post('/users', payload)
+        toast.success('Usuário cadastrado.')
+      }
+      setIsOpen(false)
+      loadUsers()
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao salvar usuário')
     }
-    setIsOpen(false)
-    loadUsers()
   }
 
   async function handleDelete() {

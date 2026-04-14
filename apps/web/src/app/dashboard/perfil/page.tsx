@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { User, Lock, Check, AlertCircle, Camera } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/proxy'
 
@@ -94,8 +95,10 @@ export default function PerfilPage() {
       formData.append('file', file)
       const result = await api.post<ProfileUser>('/auth/avatar', formData)
       updateUser({ avatar: result.avatar })
+      toast.success('Foto de perfil atualizada.')
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar foto')
+      toast.error(err.message || 'Erro ao enviar foto')
       setTimeout(() => setError(''), 3000)
     } finally {
       setUploadingAvatar(false)
@@ -126,9 +129,11 @@ export default function PerfilPage() {
       })
 
       setSuccess('Perfil atualizado com sucesso!')
+      toast.success('Perfil atualizado.')
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message || 'Erro ao atualizar perfil')
+      toast.error(err.message || 'Erro ao atualizar perfil')
     } finally {
       setSaving(false)
     }
@@ -159,10 +164,12 @@ export default function PerfilPage() {
       })
 
       setSenhaSuccess('Senha alterada com sucesso!')
+      toast.success('Senha alterada.')
       setSenhaForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
       setTimeout(() => setSenhaSuccess(''), 3000)
     } catch (err: any) {
       setSenhaError(err.message || 'Erro ao alterar senha')
+      toast.error(err.message || 'Erro ao alterar senha')
     } finally {
       setSavingPassword(false)
     }

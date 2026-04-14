@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/drawer'
 import { Plus, Pencil, Trash2, Search, Eye, Star, FileText, Clock, ChevronDown, ChevronUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import toast from 'react-hot-toast'
 
 interface Formula {
   id: string
@@ -107,19 +108,30 @@ export default function PacientesPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const payload = { ...form, age: Number(form.age) }
-    if (editing) {
-      await api.put(`/patients/${editing.id}`, payload)
-    } else {
-      await api.post('/patients', payload)
+    try {
+      if (editing) {
+        await api.put(`/patients/${editing.id}`, payload)
+        toast.success('Paciente atualizado.')
+      } else {
+        await api.post('/patients', payload)
+        toast.success('Paciente cadastrado.')
+      }
+      setIsOpen(false)
+      loadPatients()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível salvar o paciente.')
     }
-    setIsOpen(false)
-    loadPatients()
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Tem certeza que deseja excluir este paciente?')) return
-    await api.delete(`/patients/${id}`)
-    loadPatients()
+    try {
+      await api.delete(`/patients/${id}`)
+      toast.success('Paciente excluído.')
+      loadPatients()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível excluir.')
+    }
   }
 
   function openAI(patientId: string) {

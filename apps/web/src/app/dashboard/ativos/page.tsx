@@ -23,6 +23,7 @@ import {
   Plus, Pencil, Trash2, Search, FlaskConical, Download, FileText, Upload, Cpu, Eye, X,
   Sparkles, Loader2, ListTree, ChevronDown,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 type UsageGroupKey = 'EXTERNO' | 'INTERNO' | 'AMBOS'
 
@@ -244,49 +245,54 @@ function AtivosContent() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!usageScopeUI) {
-      alert('Selecione o uso: interno, externo ou ambos.')
+      toast.error('Selecione o uso: interno, externo ou ambos.')
       return
     }
     const body = ativoSubmitBody()
-    if (editing) {
-      if (file) {
-        const formData = new FormData()
-        formData.append('name', form.name)
-        formData.append('description', form.description)
-        if (form.usageType) formData.append('usageType', form.usageType)
-        formData.append('usageTypeItemId', '')
-        formData.append('usageScope', usageScopeUI)
-        if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
-        if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
-        if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
-        if (form.contraindications) formData.append('contraindications', form.contraindications)
-        if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
-        formData.append('file', file)
-        await api.put(`/ativos/${editing.id}`, formData)
+    try {
+      if (editing) {
+        if (file) {
+          const formData = new FormData()
+          formData.append('name', form.name)
+          formData.append('description', form.description)
+          if (form.usageType) formData.append('usageType', form.usageType)
+          formData.append('usageTypeItemId', '')
+          formData.append('usageScope', usageScopeUI)
+          if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
+          if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
+          if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
+          if (form.contraindications) formData.append('contraindications', form.contraindications)
+          if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
+          formData.append('file', file)
+          await api.put(`/ativos/${editing.id}`, formData)
+        } else {
+          await api.put(`/ativos/${editing.id}`, body)
+        }
       } else {
-        await api.put(`/ativos/${editing.id}`, body)
+        if (file) {
+          const formData = new FormData()
+          formData.append('name', form.name)
+          formData.append('description', form.description)
+          if (form.usageType) formData.append('usageType', form.usageType)
+          formData.append('usageTypeItemId', '')
+          formData.append('usageScope', usageScopeUI)
+          if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
+          if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
+          if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
+          if (form.contraindications) formData.append('contraindications', form.contraindications)
+          if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
+          formData.append('file', file)
+          await api.post('/ativos', formData)
+        } else {
+          await api.post('/ativos', body)
+        }
       }
-    } else {
-      if (file) {
-        const formData = new FormData()
-        formData.append('name', form.name)
-        formData.append('description', form.description)
-        if (form.usageType) formData.append('usageType', form.usageType)
-        formData.append('usageTypeItemId', '')
-        formData.append('usageScope', usageScopeUI)
-        if (form.compatibleForms) formData.append('compatibleForms', form.compatibleForms)
-        if (form.concentrationMin) formData.append('concentrationMin', form.concentrationMin)
-        if (form.concentrationMax) formData.append('concentrationMax', form.concentrationMax)
-        if (form.contraindications) formData.append('contraindications', form.contraindications)
-        if (form.technicalNotes) formData.append('technicalNotes', form.technicalNotes)
-        formData.append('file', file)
-        await api.post('/ativos', formData)
-      } else {
-        await api.post('/ativos', body)
-      }
+      toast.success(editing ? 'Ativo atualizado.' : 'Ativo cadastrado.')
+      setIsOpen(false)
+      loadAtivos()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível salvar o ativo.')
     }
-    setIsOpen(false)
-    loadAtivos()
   }
 
   async function addCatalogItem(group: 'EXTERNO' | 'INTERNO') {
@@ -296,8 +302,9 @@ function AtivosContent() {
       await api.post('/ativos/usage-items', { group, name })
       setNewUsageNames((m) => ({ ...m, [group]: '' }))
       await loadUsageCatalog()
+      toast.success('Tipo de uso adicionado.')
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Não foi possível adicionar')
+      toast.error(err instanceof Error ? err.message : 'Não foi possível adicionar')
     }
   }
 
@@ -306,8 +313,9 @@ function AtivosContent() {
     try {
       await api.delete(`/ativos/usage-items/${id}`)
       await loadUsageCatalog()
+      toast.success('Tipo de uso removido.')
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Não foi possível excluir')
+      toast.error(err instanceof Error ? err.message : 'Não foi possível excluir')
     }
   }
 
@@ -317,9 +325,9 @@ function AtivosContent() {
       const updated = await api.post<Ativo>(`/ativos/${id}/analyze`)
       setAtivos(prev => prev.map(a => a.id === id ? { ...a, ...updated } : a))
       if (detailAtivo?.id === id) setDetailAtivo({ ...detailAtivo, ...updated })
-      alert('Ativo analisado com sucesso pela IA!')
+      toast.success('Ativo analisado pela IA.')
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Erro na análise')
     } finally {
       setAnalyzing(null)
     }
@@ -367,8 +375,9 @@ function AtivosContent() {
           setFilledFields(prev => new Set(prev).add(field.key))
         }
       }
+      toast.success('Sugestões da IA aplicadas ao formulário.')
     } catch (err: any) {
-      alert('Erro ao analisar com IA: ' + err.message)
+      toast.error('Erro ao analisar com IA: ' + (err.message || ''))
     } finally {
       setFillingWithAI(false)
       setTimeout(() => setFilledFields(new Set()), 3000)
@@ -377,17 +386,22 @@ function AtivosContent() {
 
   async function handleDelete(id: string) {
     if (!confirm('Tem certeza que deseja excluir este ativo?')) return
-    await api.delete(`/ativos/${id}`)
-    loadAtivos()
+    try {
+      await api.delete(`/ativos/${id}`)
+      toast.success('Ativo excluído.')
+      loadAtivos()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível excluir.')
+    }
   }
 
   async function handleProcess(id: string) {
     setProcessing(id)
     try {
       await api.post(`/ai/process-ativo/${id}`)
-      alert('Ativo processado com sucesso!')
+      toast.success('Ativo processado para a base de conhecimento.')
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err.message || 'Erro ao processar')
     } finally {
       setProcessing(null)
     }
