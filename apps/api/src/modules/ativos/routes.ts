@@ -8,6 +8,7 @@ import fs from 'fs'
 import { pipeline } from 'stream/promises'
 import { processAtivoFile } from '../../services/embedding.service'
 import { analyzePdfContent, analyzePdfBuffer } from '../../services/pdf-analysis.service'
+import { buildAtivosExportXlsxBuffer } from '../../services/ativos-export.service'
 
 const UPLOADS_DIR = path.resolve('uploads')
 const PDFS_DIR = path.resolve('uploads', 'pdfs')
@@ -191,6 +192,15 @@ export async function ativosRoutes(app: FastifyInstance) {
         usageTypeItem: { select: { id: true, group: true, name: true } },
       },
     })
+  })
+
+  app.get('/ativos/export', { preHandler: [adminGuard] }, async (_request, reply) => {
+    const buf = await buildAtivosExportXlsxBuffer()
+    const name = `ativos-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${name}"`)
+      .send(buf)
   })
 
   app.get('/ativos/:id', { preHandler: [authGuard] }, async (request, reply) => {

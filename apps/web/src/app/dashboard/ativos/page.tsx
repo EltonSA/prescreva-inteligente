@@ -21,7 +21,7 @@ import {
 import { Select } from '@/components/ui/select'
 import {
   Plus, Pencil, Trash2, Search, FlaskConical, Download, FileText, Upload, Cpu, Eye, X,
-  Sparkles, Loader2, ListTree, ChevronDown,
+  Sparkles, Loader2, ListTree, ChevronDown, FileSpreadsheet,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -139,6 +139,7 @@ function AtivosContent() {
   const [analyzing, setAnalyzing] = useState<string | null>(null)
   const [fillingWithAI, setFillingWithAI] = useState(false)
   const [filledFields, setFilledFields] = useState<Set<string>>(new Set())
+  const [exportingExcel, setExportingExcel] = useState(false)
   const [viewing, setViewing] = useState<Ativo | null>(null)
   const [detailAtivo, setDetailAtivo] = useState<Ativo | null>(null)
   const highlightRef = useRef<HTMLLIElement>(null)
@@ -412,6 +413,43 @@ function AtivosContent() {
     window.open(`${API_URL}/ativos/${id}/download?token=${token}`, '_blank')
   }
 
+  async function exportAtivosExcel() {
+    setExportingExcel(true)
+    try {
+      const token = localStorage.getItem('prescreva_token')
+      const res = await fetch(`${API_URL}/ativos/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (res.status === 401) {
+        localStorage.removeItem('prescreva_token')
+        localStorage.removeItem('prescreva_user')
+        window.location.href = '/auth/login'
+        return
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({} as Record<string, unknown>))
+        const msg =
+          (typeof errBody.error === 'string' && errBody.error) ||
+          `Erro ao exportar (${res.status})`
+        throw new Error(msg)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ativos-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Planilha exportada.')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível exportar.')
+    } finally {
+      setExportingExcel(false)
+    }
+  }
+
   const filtered = ativos
     .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
@@ -440,10 +478,25 @@ function AtivosContent() {
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={openCreate} className="self-start sm:self-auto">
-            <Plus className="w-[18px] h-[18px]" strokeWidth={1.5} />
-            Novo ativo
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={exportAtivosExcel}
+              disabled={exportingExcel}
+            >
+              {exportingExcel ? (
+                <Loader2 className="w-[18px] h-[18px] animate-spin" strokeWidth={1.5} />
+              ) : (
+                <FileSpreadsheet className="w-[18px] h-[18px]" strokeWidth={1.5} />
+              )}
+              Exportar Excel
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="w-[18px] h-[18px]" strokeWidth={1.5} />
+              Novo ativo
+            </Button>
+          </div>
         )}
       </div>
 

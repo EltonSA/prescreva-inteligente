@@ -26,6 +26,7 @@
     "fastify": "^5.2.1",
     "openai": "^4.85.4",
     "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
