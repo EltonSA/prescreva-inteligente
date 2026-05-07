@@ -8,7 +8,8 @@ dist/
 .next/
 out/
 *.tsbuildinfo
-
+Ativos.txt
+ativos-export-2026-05-04.xlsx
 # Environment files
 .env
 .env.local
