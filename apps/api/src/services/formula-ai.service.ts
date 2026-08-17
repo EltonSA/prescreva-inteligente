@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma'
 import OpenAI from 'openai'
 import { recordAiUsage } from './ai-usage.service'
+import { openAiSamplingParams } from './openai-pricing'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -74,13 +75,12 @@ export async function processFormulaModification(
 
   switch (settings.provider) {
     case 'OPENAI': {
-      const m = settings.model || 'gpt-4o-mini'
+      const m = settings.model || 'gpt-5.6-luna'
       const openai = new OpenAI({ apiKey: settings.apiKey })
       const res = await openai.chat.completions.create({
         model: m,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 2000,
+        ...openAiSamplingParams(m, 0.7, 2000),
       })
       raw = res.choices[0]?.message?.content || ''
       const u = res.usage
@@ -99,7 +99,7 @@ export async function processFormulaModification(
     case 'CLAUDE': {
       const anthropic = new Anthropic({ apiKey: settings.apiKey })
       const res = await anthropic.messages.create({
-        model: settings.model || 'claude-3-5-sonnet-20241022',
+        model: settings.model || 'claude-sonnet-5',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }],
       })
@@ -109,7 +109,7 @@ export async function processFormulaModification(
     }
     case 'GEMINI': {
       const genAI = new GoogleGenerativeAI(settings.apiKey)
-      const model = genAI.getGenerativeModel({ model: settings.model || 'gemini-1.5-flash' })
+      const model = genAI.getGenerativeModel({ model: settings.model || 'gemini-3.7-flash' })
       const result = await model.generateContent(prompt)
       raw = result.response.text()
       break

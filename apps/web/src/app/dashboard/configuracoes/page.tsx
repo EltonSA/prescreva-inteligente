@@ -49,9 +49,9 @@ const usdFmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'US
 const brlFmtBudget = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const providerModels: Record<string, string[]> = {
-  OPENAI: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  GEMINI: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash'],
-  CLAUDE: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+  OPENAI: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'],
+  GEMINI: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.1-pro-preview', 'gemini-3.7-flash'],
+  CLAUDE: ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5'],
 }
 
 export default function ConfiguracoesPage() {
@@ -62,7 +62,7 @@ export default function ConfiguracoesPage() {
     systemPrompt: '',
     provider: 'OPENAI' as string,
     apiKey: '',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.6-luna',
   })
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(false)

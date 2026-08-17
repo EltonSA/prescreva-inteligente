@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { recordAiUsage } from './ai-usage.service'
+import { openAiSamplingParams } from './openai-pricing'
 import {
   estimateTokens,
   getModelLimit,
@@ -223,7 +224,7 @@ async function chatWithOpenAI(
   apiKey: string,
   model: string
 ): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
-  const m = model || 'gpt-4o-mini'
+  const m = model || 'gpt-5.6-luna'
   const openai = new OpenAI({ apiKey })
   const response = await openai.chat.completions.create({
     model: m,
@@ -231,8 +232,7 @@ async function chatWithOpenAI(
       { role: 'system', content: systemPrompt },
       ...messages.map((msg) => ({ role: msg.role as 'user' | 'assistant', content: msg.content })),
     ],
-    temperature: 0.7,
-    max_tokens: 2000,
+    ...openAiSamplingParams(m, 0.7, 2000),
   })
   const u = response.usage
   return {
@@ -250,7 +250,7 @@ async function chatWithClaude(
 ): Promise<string> {
   const anthropic = new Anthropic({ apiKey })
   const response = await anthropic.messages.create({
-    model: model || 'claude-3-5-sonnet-20241022',
+    model: model || 'claude-sonnet-5',
     max_tokens: 2000,
     system: systemPrompt,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -266,7 +266,7 @@ async function chatWithGemini(
   model: string
 ): Promise<string> {
   const genAI = new GoogleGenerativeAI(apiKey)
-  const geminiModel = genAI.getGenerativeModel({ model: model || 'gemini-1.5-flash' })
+  const geminiModel = genAI.getGenerativeModel({ model: model || 'gemini-3.7-flash' })
 
   const history = messages.slice(0, -1).map((m) => ({
     role: m.role === 'user' ? 'user' as const : 'model' as const,
@@ -295,7 +295,7 @@ export async function processChat(context: ChatContext): Promise<ChatResult> {
 
   if (!user || !patient) throw new Error('Usuário ou paciente não encontrado')
 
-  const model = settings.model || 'gpt-4o-mini'
+  const model = settings.model || 'gpt-5.6-luna'
   const modelLimit = getModelLimit(model)
   const reservedForResponse = 4000
   const totalBudget = modelLimit - reservedForResponse

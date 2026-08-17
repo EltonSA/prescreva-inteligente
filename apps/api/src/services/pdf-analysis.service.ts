@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma'
 import type { AtivoUsageGroup } from '@prisma/client'
 import OpenAI from 'openai'
 import { recordAiUsage } from './ai-usage.service'
+import { openAiSamplingParams } from './openai-pricing'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import fs from 'fs'
@@ -69,7 +70,7 @@ async function analyzeWithOpenAI(
   model: string,
   userId?: string | null
 ): Promise<string> {
-  const m = model || 'gpt-4o-mini'
+  const m = model || 'gpt-5.6-luna'
   const openai = new OpenAI({ apiKey })
   const response = await openai.chat.completions.create({
     model: m,
@@ -77,8 +78,7 @@ async function analyzeWithOpenAI(
       { role: 'system', content: ANALYSIS_PROMPT },
       { role: 'user', content: `Analise este texto sobre um ativo farmacêutico:\n\n${text}` },
     ],
-    temperature: 0.3,
-    max_tokens: 1500,
+    ...openAiSamplingParams(m, 0.3, 1500),
   })
   const u = response.usage
   if (u) {
@@ -97,7 +97,7 @@ async function analyzeWithOpenAI(
 async function analyzeWithClaude(text: string, apiKey: string, model: string): Promise<string> {
   const anthropic = new Anthropic({ apiKey })
   const response = await anthropic.messages.create({
-    model: model || 'claude-3-5-sonnet-20241022',
+    model: model || 'claude-sonnet-5',
     max_tokens: 1500,
     system: ANALYSIS_PROMPT,
     messages: [{ role: 'user', content: `Analise este texto sobre um ativo farmacêutico:\n\n${text}` }],
@@ -108,7 +108,7 @@ async function analyzeWithClaude(text: string, apiKey: string, model: string): P
 
 async function analyzeWithGemini(text: string, apiKey: string, model: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(apiKey)
-  const geminiModel = genAI.getGenerativeModel({ model: model || 'gemini-1.5-flash' })
+  const geminiModel = genAI.getGenerativeModel({ model: model || 'gemini-3.7-flash' })
   const result = await geminiModel.generateContent(
     `${ANALYSIS_PROMPT}\n\nAnalise este texto sobre um ativo farmacêutico:\n\n${text}`
   )
